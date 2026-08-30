@@ -131,9 +131,10 @@ def _glyph(kind, colour, x, y, scale, muted=False):
     return "".join(parts)
 
 
-def _bar(value, colour, y, muted=False):
+def _bar(value, colour, y, muted=False, width=None):
     """A level bar across the key, with the unfilled part left visible."""
-    left, width, height = 16, SIZE - 32, 8
+    left, height = 16, 8
+    width = SIZE - 32 if width is None else width
     filled = max(0.0, min(1.0, value)) * width
     track = (f'<rect x="{left}" y="{y}" width="{width}" height="{height}" '
              f'rx="{height / 2}" fill="#2b2f35"/>')
@@ -165,7 +166,7 @@ def data_uri(svg):
 
 
 def level_key(name, percent, muted, kind="speaker", unavailable=False,
-              context=""):
+              context="", press="mute", step=0):
     """A volume key: what it controls, how loud it is, whether it is muted.
 
     `context` is the mix a send belongs to. It sits under the name in smaller
@@ -190,8 +191,19 @@ def level_key(name, percent, muted, kind="speaker", unavailable=False,
                       23 if len(lines) == 1 else 20, TEXT)
         + (_text_block([_fit(context, 15)], 108, 14, DIM, weight="400")
            if context else "")
-        + _bar(percent / 100.0, accent, 118, muted)
     )
+    if press in ("up", "down") and step:
+        # A key that steps needs to say so and by how much: three keys on one
+        # source differ only in what pressing them does, and the level they
+        # all show is identical. The bar gives up its right-hand end for it.
+        body += _bar(percent / 100.0, accent, 118, muted, width=SIZE - 62)
+        body += (
+            f'<text x="{SIZE - 14}" y="127" fill="{accent}" font-size="17" '
+            f'font-family="{FONT}" font-weight="bold" text-anchor="end">'
+            f'{"+" if press == "up" else "\u2212"}{step}</text>'
+        )
+    else:
+        body += _bar(percent / 100.0, accent, 118, muted)
     return _document(body, accent)
 
 

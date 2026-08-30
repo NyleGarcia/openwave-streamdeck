@@ -340,6 +340,99 @@ class TestAdjusting(PluginCase):
         self.assertEqual(self.calls, [])
 
 
+class TestPressBehaviour(PluginCase):
+    """A key only presses, so what a press does is the whole control."""
+
+    def test_a_press_mutes_by_default(self):
+        self.place("c", P.VOLUME, {"target": "mix:personal"})
+        self.press("c")
+        self.assertIn(("sink-mute", "openwave_personal_mix"), self.calls)
+
+    def test_a_key_can_turn_up_instead(self):
+        self.place("c", P.VOLUME,
+                   {"target": "mix:chat", "press": "up", "step": 5})
+        self.press("c")
+        self.assertIn(("sink-volume", "openwave_chat_mix", 0.65), self.calls)
+        self.assertNotIn(("sink-mute", "openwave_chat_mix"), self.calls)
+
+    def test_a_key_can_turn_down(self):
+        self.place("c", P.VOLUME,
+                   {"target": "mix:chat", "press": "down", "step": 10})
+        self.press("c")
+        self.assertIn(("sink-volume", "openwave_chat_mix", 0.5), self.calls)
+
+    def test_stepping_a_source_goes_through_openwave(self):
+        self.place("c", P.SOURCE_LEVEL,
+                   {"target": "src:music", "press": "up", "step": 20})
+        self.press("c")
+        self.assertIn(("src-level", "music", 0.7), self.calls)
+
+    def test_stepping_a_send_goes_through_openwave(self):
+        self.place("c", P.SEND_LEVEL,
+                   {"target": "cell:dock:chat", "press": "down", "step": 8})
+        self.press("c")
+        self.assertIn(("cell-level", "dock", "chat", 0.6), self.calls)
+
+    def test_a_dial_rotates_by_the_same_step(self):
+        """One setting, not two: a dial and its press should not disagree."""
+        self.place("c", P.VOLUME,
+                   {"target": "mix:chat", "step": 25}, controller="Encoder")
+        self.plugin._handle({"event": "dialRotate", "context": "c",
+                             "payload": {"ticks": 1}})
+        self.assertIn(("sink-volume", "openwave_chat_mix", 0.85), self.calls)
+
+    def test_stepping_stops_at_the_top(self):
+        self.place("c", P.VOLUME,
+                   {"target": "mix:personal", "press": "up", "step": 25})
+        self.press("c")
+        self.assertIn(("sink-volume", "openwave_personal_mix", 1.0),
+                      self.calls)
+
+    def test_an_unreadable_target_is_not_stepped(self):
+        self.sinks.pop("openwave_chat_mix")
+        self.place("c", P.VOLUME, {"target": "mix:chat", "press": "up"})
+        self.press("c")
+        self.assertEqual(self.calls, [])
+
+    def test_a_stepping_key_says_which_way_and_by_how_much(self):
+        """Three keys on one source differ only in what pressing them does,
+        and the level they all show is identical."""
+        import base64
+        self.place("c", P.VOLUME,
+                   {"target": "mix:chat", "press": "up", "step": 5})
+        self.plugin._drawn.clear()
+        self.plugin._render("c")
+        uri = self.events("setImage")[0]["payload"]["image"]
+        svg = base64.b64decode(uri.split(",", 1)[1]).decode()
+        self.assertIn("+5", svg)
+
+    def test_a_muting_key_carries_no_step_badge(self):
+        import base64
+        self.place("c", P.VOLUME, {"target": "mix:personal", "step": 5})
+        self.plugin._drawn.clear()
+        self.plugin._render("c")
+        uri = self.events("setImage")[0]["payload"]["image"]
+        svg = base64.b64decode(uri.split(",", 1)[1]).decode()
+        self.assertNotIn("+5", svg)
+
+
+class TestSettingsAreReadDefensively(unittest.TestCase):
+    """Both arrive from inspector inputs, so neither can be trusted raw."""
+
+    def test_press_falls_back_to_mute(self):
+        for settings in ({}, {"press": ""}, {"press": "bogus"},
+                         {"press": None}):
+            self.assertEqual(P.press_action(settings), "mute")
+
+    def test_step_is_clamped_and_coerced(self):
+        self.assertEqual(P.step_percent({}), P.DEFAULT_STEP)
+        self.assertEqual(P.step_percent({"step": "7"}), 7)
+        self.assertEqual(P.step_percent({"step": ""}), P.DEFAULT_STEP)
+        self.assertEqual(P.step_percent({"step": None}), P.DEFAULT_STEP)
+        self.assertEqual(P.step_percent({"step": 0}), P.MIN_STEP)
+        self.assertEqual(P.step_percent({"step": 999}), P.MAX_STEP)
+
+
 class TestPressing(PluginCase):
     def test_press_mutes_a_mix(self):
         self.place("c", P.VOLUME, {"target": "mix:personal"})
@@ -621,6 +714,16 @@ class TestInspectorPayload(PluginCase):
     def test_a_target_of_the_right_kind_is_not_duplicated(self):
         values = self.values(P.VOLUME, {"target": "mix:chat"})
         self.assertEqual(values.count("mix:chat"), 1)
+
+    def test_the_panel_is_told_what_the_key_already_has(self):
+        """The plugin holds the authoritative settings, so it says what is
+        chosen rather than leaving the panel to work it out from its own
+        copy and risk the two disagreeing."""
+        payload = self.plugin._inspector_payload(
+            P.VOLUME, {"target": "mix:chat", "press": "down", "step": 15})
+        self.assertEqual(payload["chosen"], "mix:chat")
+        self.assertEqual(payload["press"], "down")
+        self.assertEqual(payload["step"], 15)
 
     def test_each_action_explains_itself(self):
         for action in (P.VOLUME, P.SOURCE_LEVEL, P.SEND_LEVEL):

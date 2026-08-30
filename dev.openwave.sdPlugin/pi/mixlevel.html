@@ -22,12 +22,24 @@
     <label for="pairMix" style="margin-top:12px">In which mix</label>
     <select id="pairMix"></select>
   </div>
+  <div id="behaviour" style="margin-top:14px">
+    <label for="press">When pressed</label>
+    <select id="press">
+      <option value="mute">Mute / unmute</option>
+      <option value="up">Turn up</option>
+      <option value="down">Turn down</option>
+    </select>
+    <label for="step" style="margin-top:12px">Step size</label>
+    <select id="step"></select>
+  </div>
   <p class="hint" id="hint">Rotate to adjust, press to mute.</p>
   <p class="warn" id="warn" hidden></p>
 
 <script>
 const select = document.getElementById("target");
 const warn = document.getElementById("warn");
+const pressSelect = document.getElementById("press");
+const stepSelect = document.getElementById("step");
 const sourceSelect = document.getElementById("pairSource");
 const mixSelect = document.getElementById("pairMix");
 let targets = [];
@@ -38,6 +50,7 @@ OpenWave.onPayload((payload) => {
     document.getElementById("hint").textContent =
       "Rotate to adjust, press to mute. " + payload.hint;
   }
+  renderBehaviour(payload);
   // Two dropdowns when the thing being chosen is genuinely two choices: a
   // source and the mix it sits in. One combined list is every pairing, which
   // grows as sources x mixes and is long before it is useful.
@@ -50,6 +63,36 @@ OpenWave.onPayload((payload) => {
   targets = payload.targets || [];
   render(payload);
 });
+
+function renderBehaviour(payload) {
+  // A dial rotates and presses; a key only presses, so on a key the press is
+  // the entire control and being able to make it a step is the difference
+  // between three keys and one.
+  pressSelect.value = payload.press || "mute";
+  if (!stepSelect.options.length) {
+    for (const value of [1, 2, 3, 5, 10, 15, 20, 25]) {
+      stepSelect.appendChild(new Option(value + "%", String(value)));
+    }
+  }
+  stepSelect.value = String(payload.step || 2);
+  const save = () => OpenWave.save({
+    press: pressSelect.value, step: Number(stepSelect.value),
+  });
+  pressSelect.onchange = save;
+  stepSelect.onchange = save;
+  updateStepVisibility();
+  pressSelect.addEventListener("change", updateStepVisibility);
+}
+
+function updateStepVisibility() {
+  // A step means nothing to a key that mutes -- but a dial still rotates by
+  // it, so it is only hidden when neither use applies.
+  const stepping = pressSelect.value !== "mute";
+  const dial = (OpenWave.controller() === "Encoder");
+  stepSelect.parentElement.querySelector('label[for="step"]').hidden =
+    !stepping && !dial;
+  stepSelect.hidden = !stepping && !dial;
+}
 
 function fill(node, items, selected) {
   node.innerHTML = "";
@@ -104,7 +147,7 @@ function renderPair(payload) {
 }
 
 function render(payload) {
-  const chosen = OpenWave.settings().target
+  const chosen = payload.chosen || OpenWave.settings().target
     || (OpenWave.settings().mix ? "mix:" + OpenWave.settings().mix : "");
   select.innerHTML = "";
   warn.hidden = true;

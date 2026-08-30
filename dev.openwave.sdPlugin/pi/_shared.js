@@ -14,6 +14,7 @@
   let socket = null;
   let context = null;
   let action = null;
+  let controller = "Keypad";
   let settings = {};
   let answered = false;
   const listeners = [];
@@ -24,6 +25,7 @@
     context = info.context;
     action = info.action;
     settings = (info.payload && info.payload.settings) || {};
+    controller = (info.payload && info.payload.controller) || "Keypad";
     socket = new WebSocket("ws://127.0.0.1:" + port);
     socket.onopen = () => {
       socket.send(JSON.stringify({ event: registerEvent, uuid: _uuid }));
@@ -77,6 +79,7 @@
 
   window.OpenWave = {
     report,
+    controller: () => controller,
     settings: () => settings,
     onPayload(fn) { listeners.push(fn); },
     ask() {

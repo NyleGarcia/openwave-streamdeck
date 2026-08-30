@@ -68,9 +68,15 @@ HINTS = {
                 "Volume. Needs OpenWave running.",
 }
 
-# How far one dial detent moves a level. Small enough to land on a value,
-# large enough to cross the range without a long spin.
-STEP = 0.02
+# How far one detent, or one press of a stepping key, moves a level. Small
+# enough to land on a value, large enough to cross the range without a long
+# spin; overridable per key, because a mix master and a send want different
+# resolutions.
+DEFAULT_STEP = 2
+MIN_STEP, MAX_STEP = 1, 50
+# What pressing does. Mute is the default because it is what a key on a level
+# most often is, and it is what every key did before this was settable.
+PRESS_MUTE, PRESS_UP, PRESS_DOWN = "mute", "up", "down"
 # Keys are redrawn on this cadence so a change made in OpenWave's window, or
 # by anything else touching the graph, shows up without the deck being touched
 # first.
@@ -117,6 +123,24 @@ def parse_target(settings):
     if kind == "cell" and ident.count(":") == 1 and all(ident.split(":")):
         return kind, ident
     return None, None
+
+
+def press_action(settings):
+    action = settings.get("press")
+    return action if action in (PRESS_MUTE, PRESS_UP, PRESS_DOWN) else PRESS_MUTE
+
+
+def step_percent(settings):
+    """A key's step, in whole percent, clamped to something usable.
+
+    Read defensively: it arrives from a text input in the inspector, so it can
+    be a string, empty, or absent entirely on a key placed before it existed.
+    """
+    try:
+        step = int(float(settings.get("step", DEFAULT_STEP)))
+    except (TypeError, ValueError):
+        return DEFAULT_STEP
+    return max(MIN_STEP, min(MAX_STEP, step))
 
 
 def split_cell(ident):
@@ -291,7 +315,8 @@ class Plugin:
         self._paint(context, render.level_key(
             state["name"], state["percent"], state["muted"],
             kind=state["glyph"], unavailable=not state["ok"],
-            context=state.get("context", "")))
+            context=state.get("context", ""),
+            press=press_action(settings), step=step_percent(settings)))
         if encoder:
             self._paint_strip(context, state)
 
@@ -336,8 +361,23 @@ class Plugin:
         state = self._read(settings)
         if state is None or not state["ok"]:
             return
-        self._set_level(settings, state["percent"] / 100.0 + ticks * STEP)
+        step = step_percent(settings) / 100.0
+        self._set_level(settings, state["percent"] / 100.0 + ticks * step)
         self._render(context)
+
+    def _press(self, context):
+        """What a press does, which is a per-key choice.
+
+        Three keys on one source -- mute, louder, quieter -- is a common
+        layout on a deck with no dials, and was impossible while a press was
+        always a mute.
+        """
+        settings = self._contexts.get(context) or {}
+        action = press_action(settings)
+        if action == PRESS_MUTE:
+            self._toggle_mute(context)
+            return
+        self._adjust(context, 1 if action == PRESS_UP else -1)
 
     def _toggle_mute(self, context):
         settings = self._contexts.get(context) or {}
@@ -446,6 +486,8 @@ class Plugin:
                 },
                 "openwave": data is not None,
                 "hint": HINTS.get(action, ""),
+                "press": press_action(settings or {}),
+                "step": step_percent(settings or {}),
             }
 
         if chosen and chosen not in {t["value"] for t in targets}:
@@ -457,7 +499,15 @@ class Plugin:
                                "group": "Currently set", "isDefault": False})
 
         return {"targets": targets, "openwave": data is not None,
-                "hint": HINTS.get(action, "")}
+                "hint": HINTS.get(action, ""),
+                # The plugin holds the authoritative settings for this
+                # instance, so it says what is chosen rather than leaving the
+                # panel to work it out from its own copy. Pair mode already
+                # did; single mode reading a different source was an
+                # asymmetry waiting to disagree.
+                "chosen": chosen,
+                "press": press_action(settings or {}),
+                "step": step_percent(settings or {})}
 
     # ------------------------------------------------------------- inbound
     def _handle(self, message):
@@ -489,7 +539,7 @@ class Plugin:
             if settings.get("action") == MIC_GROUP:
                 self._switch_group(context)
             else:
-                self._toggle_mute(context)
+                self._press(context)
         elif event == "propertyInspectorDidAppear":
             # Pushed, not waited for. The panel asks once when its webview is
             # built, which can be long before anyone looks at it, and a reply

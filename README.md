@@ -14,7 +14,15 @@ An [OpenDeck](https://github.com/nekename/OpenDeck) plugin for controlling
 
 All four work on a key or a dial except Mic Group, which is a key.
 
-Rotate a dial to adjust, press to mute; a key presses to mute too.
+Rotate a dial to adjust; a press mutes by default. **What a press does is
+settable** — mute, turn up, or turn down — with a step size from 1% to 25%.
+On a deck with no dials that is the difference between one key and three:
+mute, louder and quieter on the same source.
+
+The step is one setting, not two: a dial rotates by the same amount its press
+steps, so the two cannot disagree. A key that steps says which way and by how
+much, because three keys on one source are otherwise identical — they all
+show the same level.
 
 One action per kind rather than one action with every target in a single list.
 With three mixes and seven sources that list is **31 entries**, 21 of them

@@ -241,22 +241,28 @@ class Plugin:
         encoder = settings.get("controller") == "Encoder"
         state = self._read(settings)
         if state is None:
+            self._paint(context, render.unconfigured_key(
+                "Pick a mix", "or a source"))
             if encoder:
                 self._paint_strip(context, {
                     "name": "Pick a mix or source", "percent": 0,
                     "muted": False, "glyph": "speaker", "ok": False,
                     "context": ""})
-            else:
-                self._paint(context, render.unconfigured_key(
-                    "Pick a mix", "or a source"))
             return
+        # An encoder gets both. The strip is what the hardware shows, but
+        # OpenDeck's editor draws a dial from its key image and title, so an
+        # encoder sent only feedback sits in the editor as the static manifest
+        # icon captioned "Mix" -- identical for every dial, whatever each one
+        # is actually bound to. The key image is safe to send now: it used to
+        # be routed into the built-in layout's icon slot, putting a shrunken
+        # key card inside the strip, and layouts/strip.json has no icon item
+        # for it to land in.
+        self._paint(context, render.level_key(
+            state["name"], state["percent"], state["muted"],
+            kind=state["glyph"], unavailable=not state["ok"],
+            context=state.get("context", "")))
         if encoder:
             self._paint_strip(context, state)
-        else:
-            self._paint(context, render.level_key(
-                state["name"], state["percent"], state["muted"],
-                kind=state["glyph"], unavailable=not state["ok"],
-                context=state.get("context", "")))
 
     def _render_group(self, context, settings):
         group = settings.get("group")

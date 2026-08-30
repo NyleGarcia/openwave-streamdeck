@@ -31,7 +31,7 @@
       "States": [
         {
           "Image": "icons/mixlevel",
-          "Title": "Mix"
+          "Title": ""
         }
       ],
       "Encoder": {
@@ -58,7 +58,7 @@
       "States": [
         {
           "Image": "icons/micgroup",
-          "Title": "Mic"
+          "Title": ""
         }
       ]
     }

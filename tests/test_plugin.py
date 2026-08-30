@@ -464,15 +464,31 @@ class TestDrawing(PluginCase):
         self.assertTrue(feedback["canvas"].startswith(
             "data:image/svg+xml;base64,"))
 
-    def test_an_encoder_is_sent_no_key_image(self):
-        """OpenDeck routes setImage into the layout's icon slot, which put a
-        shrunken copy of a whole key inside the touch strip."""
+    def test_an_encoder_gets_both_a_strip_and_a_key_image(self):
+        """The strip is what the hardware shows, but OpenDeck's editor draws a
+        dial from its key image: an encoder sent only feedback appears there
+        as the static manifest icon, identical for every dial whatever each is
+        bound to. Sending the image is safe only because layouts/strip.json
+        has no icon item for it to be routed into."""
         self.plugin._handle({
             "event": "willAppear", "context": "e", "action": P.VOLUME,
             "payload": {"controller": "Encoder",
                         "settings": {"target": "mix:chat"}},
         })
-        self.assertEqual(self.events("setImage"), [])
+        self.assertEqual(len(self.events("setImage")), 1)
+        self.assertEqual(len(self.events("setFeedback")), 1)
+
+    def test_an_encoder_key_image_names_what_it_controls(self):
+        self.plugin._handle({
+            "event": "willAppear", "context": "e", "action": P.VOLUME,
+            "payload": {"controller": "Encoder",
+                        "settings": {"target": "cell:music:chat"}},
+        })
+        import base64
+        uri = self.events("setImage")[0]["payload"]["image"]
+        svg = base64.b64decode(uri.split(",", 1)[1]).decode()
+        self.assertIn("Music", svg)
+        self.assertIn("Chat Mix", svg)
 
     def test_a_keypad_sends_no_feedback(self):
         self.place("c", P.VOLUME, {"target": "mix:chat"})

@@ -1,3 +1,15 @@
+# [0.4.0](https://github.com/NyleGarcia/openwave-streamdeck/compare/v0.3.0...v0.4.0) (2026-08-30)
+
+
+### Bug Fixes
+
+* keep the step badge parseable on Python 3.10 ([c2cc239](https://github.com/NyleGarcia/openwave-streamdeck/commit/c2cc239fee4b714b01fcdd8fd503fdcf70e2946d))
+
+
+### Features
+
+* make a press mute, raise or lower, with a settable step ([2909193](https://github.com/NyleGarcia/openwave-streamdeck/commit/29091935d160a6abdc203c83351420b9be2ad987))
+
 # [0.3.0](https://github.com/NyleGarcia/openwave-streamdeck/compare/v0.2.0...v0.3.0) (2026-08-30)
 
 

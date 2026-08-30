@@ -160,6 +160,10 @@ def _state(name):
     return None
 
 
+def _quote(text):
+    return str(text).replace("\\", "\\\\").replace("'", "\\'")
+
+
 def switch_group(group):
     """Hand a microphone group over to its next microphone."""
     escaped = group.replace("\\", "\\\\").replace("'", "\\'")
@@ -182,6 +186,26 @@ def toggle_source_mute(source_id):
     escaped = source_id.replace("\\", "\\\\").replace("'", "\\'")
     parameter = GLib.Variant("s", source_id) if _HAVE_GI else None
     return activate("toggle-source-mute", parameter, f"<'{escaped}'>")
+
+
+def set_cell_level(source_id, mix_id, level):
+    """Set how much of one source a single mix receives -- a matrix cell."""
+    level = max(0.0, min(1.0, float(level)))
+    parameter = (GLib.Variant("(ssd)", (source_id, mix_id, level))
+                 if _HAVE_GI else None)
+    return activate(
+        "set-cell-level", parameter,
+        f"<('{_quote(source_id)}', '{_quote(mix_id)}', {level!r})>",
+    )
+
+
+def toggle_cell_mute(source_id, mix_id):
+    parameter = (GLib.Variant("(ss)", (source_id, mix_id))
+                 if _HAVE_GI else None)
+    return activate(
+        "toggle-cell-mute", parameter,
+        f"<('{_quote(source_id)}', '{_quote(mix_id)}')>",
+    )
 
 
 def snapshot():

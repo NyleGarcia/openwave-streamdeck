@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
+  <!-- Three faders at different positions. A plain speaker glyph would not
+       distinguish this from every other volume action in the list; a fader
+       bank says the level belongs to a mixer. -->
+  <g stroke-width="12" stroke-linecap="round" fill="none">
+    <g stroke="#333c47">
+      <path d="M32 24v96M72 24v96M112 24v96"/>
+    </g>
+    <g stroke="#3ba7f0">
+      <path d="M32 66v54M72 44v76M112 92v28"/>
+    </g>
+  </g>
+  <g fill="#eaf4fb">
+    <circle cx="32" cy="66" r="13"/>
+    <circle cx="72" cy="44" r="13"/>
+    <circle cx="112" cy="92" r="13"/>
+  </g>
+</svg>

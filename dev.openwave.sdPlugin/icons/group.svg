@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
+  <!-- Two microphones, one live and one dimmed, and the swap between them.
+       The dimming is the point: only one of a group is open at a time. -->
+  <g fill="#3ecf8e">
+    <rect x="26" y="18" width="22" height="38" rx="11"/>
+  </g>
+  <g stroke="#3ecf8e" stroke-width="8" stroke-linecap="round" fill="none">
+    <path d="M22 52a15 15 0 0 0 30 0"/><path d="M37 67v11"/>
+  </g>
+  <g fill="#31614e">
+    <rect x="96" y="18" width="22" height="38" rx="11"/>
+  </g>
+  <g stroke="#31614e" stroke-width="8" stroke-linecap="round" fill="none">
+    <path d="M92 52a15 15 0 0 0 30 0"/><path d="M107 67v11"/>
+  </g>
+  <g stroke="#3ecf8e" stroke-width="10" stroke-linecap="round"
+     stroke-linejoin="round" fill="none">
+    <path d="M38 104h68l-16-16"/>
+    <path d="M106 126H38l16 16"/>
+  </g>
+</svg>

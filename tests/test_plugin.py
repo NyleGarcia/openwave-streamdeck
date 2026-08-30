@@ -23,6 +23,17 @@ from owdeck import graph, ipc, owstate, render               # noqa: E402
 
 SNAPSHOT = {
     "groups": ["Mic"],
+    "mixes": [
+        {"id": "personal", "name": "Personal Mix",
+         "sink": "openwave_personal_mix"},
+        {"id": "chat", "name": "Chat Mix", "sink": "openwave_chat_mix"},
+    ],
+    "cells": {
+        "dock.personal": {"volume": 0.0, "muted": False},
+        "dock.chat": {"volume": 0.68, "muted": False},
+        "music.personal": {"volume": 0.55, "muted": False},
+        "music.chat": {"volume": 0.3, "muted": True},
+    },
     "sources": [
         {"id": "dock", "name": "XLR Dock", "level": 0.8, "muted": False,
          "group": "Mic", "kind": "device"},
@@ -78,6 +89,8 @@ class PluginCase(unittest.TestCase):
         self._patch(ipc, "snapshot", lambda: self.snapshot)
         self._patch(ipc, "set_source_level", self._set_source_level)
         self._patch(ipc, "toggle_source_mute", self._toggle_source_mute)
+        self._patch(ipc, "set_cell_level", self._set_cell_level)
+        self._patch(ipc, "toggle_cell_mute", self._toggle_cell_mute)
         self._patch(ipc, "switch_group", self._switch_group)
 
         self.ws = FakeWS()
@@ -122,6 +135,17 @@ class PluginCase(unittest.TestCase):
         source["muted"] = not source["muted"]
         return source["muted"]
 
+    def _set_cell_level(self, source_id, mix_id, level):
+        self.calls.append(("cell-level", source_id, mix_id, round(level, 3)))
+        self.snapshot["cells"][f"{source_id}.{mix_id}"]["volume"] = level
+        return True
+
+    def _toggle_cell_mute(self, source_id, mix_id):
+        self.calls.append(("cell-mute", source_id, mix_id))
+        cell = self.snapshot["cells"][f"{source_id}.{mix_id}"]
+        cell["muted"] = not cell["muted"]
+        return cell["muted"]
+
     def _switch_group(self, group):
         self.calls.append(("switch", group))
         members = [s for s in self.snapshot["sources"] if s["group"] == group]
@@ -156,6 +180,22 @@ class TestParseTarget(unittest.TestCase):
     def test_settings_written_before_targets_still_resolve(self):
         """A key placed by an earlier build named its mix directly."""
         self.assertEqual(P.parse_target({"mix": "chat"}), ("mix", "chat"))
+
+    def test_a_send_names_both_halves(self):
+        self.assertEqual(P.parse_target({"target": "cell:music:chat"}),
+                         ("cell", "music:chat"))
+        self.assertEqual(P.split_cell("music:chat"), ("music", "chat"))
+
+    def test_a_half_written_send_is_not_a_target(self):
+        """Acting on "cell:music" would need a mix it does not have."""
+        self.assertEqual(P.parse_target({"target": "cell:music"}),
+                         (None, None))
+        self.assertEqual(P.parse_target({"target": "cell:music:"}),
+                         (None, None))
+        self.assertEqual(P.parse_target({"target": "cell::chat"}),
+                         (None, None))
+        self.assertEqual(P.parse_target({"target": "cell:a:b:c"}),
+                         (None, None))
 
     def test_nothing_chosen(self):
         self.assertEqual(P.parse_target({}), (None, None))
@@ -204,6 +244,71 @@ class TestReadingState(PluginCase):
 
     def test_no_target(self):
         self.assertIsNone(self.plugin._read({}))
+
+
+class TestReadingCells(PluginCase):
+    def test_a_send_reads_its_own_level(self):
+        state = self.plugin._read({"target": "cell:dock:chat"})
+        self.assertEqual(state["percent"], 68)
+        self.assertFalse(state["muted"])
+
+    def test_a_send_is_labelled_with_its_mix(self):
+        """Two sends from one source differ only by where they go, so the key
+        has to say which; the source name alone is ambiguous."""
+        state = self.plugin._read({"target": "cell:dock:chat"})
+        self.assertEqual(state["name"], "XLR Dock")
+        self.assertEqual(state["context"], "Chat Mix")
+
+    def test_a_send_is_not_the_row_trim(self):
+        """dock's trim is 0.8 and its send into chat is 0.68: reading one for
+        the other would look plausible and be wrong."""
+        self.assertEqual(self.plugin._read({"target": "src:dock"})["percent"],
+                         80)
+        self.assertEqual(
+            self.plugin._read({"target": "cell:dock:chat"})["percent"], 68)
+
+    def test_a_send_keeps_its_source_glyph(self):
+        self.assertEqual(
+            self.plugin._read({"target": "cell:dock:chat"})["glyph"], "mic")
+        self.assertEqual(
+            self.plugin._read({"target": "cell:music:chat"})["glyph"],
+            "speaker")
+
+    def test_a_send_to_a_deleted_mix_is_unavailable(self):
+        self.snapshot["mixes"] = [self.snapshot["mixes"][0]]
+        self.plugin._snapshot_at = 0.0
+        self.assertFalse(
+            self.plugin._read({"target": "cell:dock:chat"})["ok"])
+
+    def test_a_send_with_openwave_closed_is_unavailable(self):
+        self.snapshot = None
+        self.plugin._snapshot_at = 0.0
+        self.assertFalse(
+            self.plugin._read({"target": "cell:dock:chat"})["ok"])
+
+
+class TestAdjustingCells(PluginCase):
+    def test_rotating_a_send_goes_through_openwave(self):
+        """Sends are re-applied on every reconcile, so a value written any
+        other way is undone within a second."""
+        self.place("c", P.VOLUME, {"target": "cell:dock:chat"})
+        self.plugin._handle({"event": "dialRotate", "context": "c",
+                             "payload": {"ticks": 5}})
+        self.assertIn(("cell-level", "dock", "chat", 0.78), self.calls)
+
+    def test_pressing_a_send_mutes_only_that_cell(self):
+        self.place("c", P.VOLUME, {"target": "cell:dock:chat"})
+        self.press("c")
+        self.assertIn(("cell-mute", "dock", "chat"), self.calls)
+        self.assertNotIn(("src-mute", "dock"), self.calls)
+
+    def test_a_send_on_a_missing_mix_is_left_alone(self):
+        self.snapshot["mixes"] = []
+        self.plugin._snapshot_at = 0.0
+        self.place("c", P.VOLUME, {"target": "cell:dock:chat"})
+        self.plugin._handle({"event": "dialRotate", "context": "c",
+                             "payload": {"ticks": 5}})
+        self.assertEqual(self.calls, [])
 
 
 class TestAdjusting(PluginCase):
@@ -413,6 +518,37 @@ class TestInspectorPayload(PluginCase):
         self.assertFalse([t for t in payload["targets"]
                           if t["value"].startswith("src:")])
 
+    def test_every_send_is_offered(self):
+        payload = self.plugin._inspector_payload(P.VOLUME)
+        values = {t["value"] for t in payload["targets"]}
+        # three sources x two mixes, on top of the masters and the trims
+        for source in ("dock", "arctis", "music"):
+            for mix in ("personal", "chat"):
+                self.assertIn(f"cell:{source}:{mix}", values)
+
+    def test_sends_are_grouped_by_the_mix_they_feed(self):
+        """The matrix reads by column, and so should the list."""
+        payload = self.plugin._inspector_payload(P.VOLUME)
+        groups = {t["value"]: t["group"] for t in payload["targets"]}
+        self.assertEqual(groups["cell:music:chat"], "Sends into Chat Mix")
+        self.assertEqual(groups["cell:music:personal"],
+                         "Sends into Personal Mix")
+
+    def test_a_send_is_labelled_unambiguously(self):
+        payload = self.plugin._inspector_payload(P.VOLUME)
+        labels = {t["value"]: t["label"] for t in payload["targets"]}
+        self.assertEqual(labels["cell:music:chat"], "Music into Chat Mix")
+        # The trim and the master must not read the same as the send.
+        self.assertEqual(labels["src:music"], "Music")
+        self.assertEqual(labels["mix:chat"], "Chat Mix")
+
+    def test_no_sends_are_offered_with_openwave_closed(self):
+        self.snapshot = None
+        self.plugin._snapshot_at = 0.0
+        payload = self.plugin._inspector_payload(P.VOLUME)
+        self.assertFalse([t for t in payload["targets"]
+                          if t["value"].startswith("cell:")])
+
     def test_group_inspector(self):
         payload = self.plugin._inspector_payload(P.MIC_GROUP)
         self.assertEqual(payload["groups"], ["Mic"])
@@ -443,6 +579,13 @@ class TestRendering(unittest.TestCase):
     def test_a_live_microphone_group_is_green(self):
         self.assertIn(render.MIC_LIVE, render.group_key("Mic", "Dock", 2, 1))
         self.assertIn(render.MUTED, render.group_key("Mic", "", 2))
+
+    def test_a_send_shows_the_mix_under_the_source(self):
+        """Joined on one line, "Music -> Chat Mix" truncates to "Music -> Ch…"
+        and loses the half that says where it goes."""
+        svg = render.level_key("Music", 61, False, context="Chat Mix")
+        self.assertIn("Music", svg)
+        self.assertIn("Chat Mix", svg)
 
     def test_names_too_long_for_a_key_are_truncated(self):
         svg = render.level_key("Arctis Nova Pro Wireless Mono", 50, False)

@@ -164,8 +164,14 @@ def data_uri(svg):
     return f"data:image/svg+xml;base64,{encoded}"
 
 
-def level_key(name, percent, muted, kind="speaker", unavailable=False):
-    """A volume key: what it controls, how loud it is, whether it is muted."""
+def level_key(name, percent, muted, kind="speaker", unavailable=False,
+              context=""):
+    """A volume key: what it controls, how loud it is, whether it is muted.
+
+    `context` is the mix a send belongs to. It sits under the name in smaller
+    dim type rather than being joined to it, because "Music -> Chat Mix" on
+    one line truncates to "Music -> Ch…" and loses the half that says where.
+    """
     if unavailable:
         return _document(
             _glyph(kind, IDLE, 50, 28, 1.75)
@@ -179,8 +185,11 @@ def level_key(name, percent, muted, kind="speaker", unavailable=False):
         + f'<text x="{SIZE - 13}" y="42" fill="{accent}" font-size="30" '
         f'font-family="{FONT}" font-weight="bold" text-anchor="end">'
         f'{"MUTED" if muted else f"{percent}%"}</text>'
-        + _text_block(lines, 92 if len(lines) > 1 else 96,
+        + _text_block(lines, (78 if context else 92) if len(lines) > 1
+                      else (84 if context else 96),
                       23 if len(lines) == 1 else 20, TEXT)
+        + (_text_block([_fit(context, 15)], 108, 14, DIM, weight="400")
+           if context else "")
         + _bar(percent / 100.0, accent, 118, muted)
     )
     return _document(body, accent)
@@ -233,7 +242,8 @@ def unconfigured_key(headline, hint, kind="speaker"):
 STRIP_W, STRIP_H = 200, 100
 
 
-def strip(name, percent, muted, kind="speaker", unavailable=False):
+def strip(name, percent, muted, kind="speaker", unavailable=False,
+          context=""):
     """The encoder's entire touch strip, as one image.
 
     The $A0 layout exposes a full-canvas pixmap covering all 200x100, so the
@@ -248,15 +258,24 @@ def strip(name, percent, muted, kind="speaker", unavailable=False):
     # readout on the same line overlap the moment the name is longer than
     # "System" -- so the name gets the top row to itself and the readout sits
     # beside the bar underneath, where nothing competes with it.
-    bar_x, bar_w, bar_h, bar_y = 12, 108, 14, 62
+    bar_x, bar_w, bar_h, bar_y = 12, 108, 14, 70
     filled = 0.0 if (muted or unavailable) else \
         max(0.0, min(1.0, percent / 100.0)) * bar_w
+    # With a mix to name, the name and the mix each get a row of their own.
+    # Side by side they collide the moment the name is longer than "Music":
+    # right-aligning the mix does not help, because both widths depend on
+    # text that is not measurable here.
+    name_y, context_y = (32, 52) if context else (40, None)
     body = (
         f'<rect width="{STRIP_W}" height="{STRIP_H}" fill="{BG}"/>'
-        + _glyph(kind, accent, 10, 8, 1.45, muted=muted and not unavailable)
-        + f'<text x="54" y="38" fill="{TEXT}" font-size="23" '
+        + _glyph(kind, accent, 10, (14 if context else 10), 1.35,
+                 muted=muted and not unavailable)
+        + f'<text x="54" y="{name_y}" fill="{TEXT}" font-size="23" '
         f'font-family="{FONT}" font-weight="600">'
         f'{_escape(_fit(name, 12))}</text>'
+        + (f'<text x="54" y="{context_y}" fill="{DIM}" font-size="15" '
+           f'font-family="{FONT}">into {_escape(_fit(context, 14))}</text>'
+           if context else "")
         + f'<rect x="{bar_x}" y="{bar_y}" width="{bar_w}" height="{bar_h}" '
         f'rx="{bar_h / 2}" fill="#2b2f35"/>'
     )

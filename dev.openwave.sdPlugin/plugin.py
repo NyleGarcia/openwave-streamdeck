@@ -69,7 +69,11 @@ _MIX_GLYPHS = {
 
 
 def parse_target(settings):
-    """("mix"|"src", id) for what a key controls, or (None, None).
+    """What a key controls, as (kind, ident), or (None, None).
+
+    Three kinds. "mix" is a mix's master, a PipeWire sink. "src" is a source's
+    trim, applying in every mix at once. "cell" is one send -- how much of one
+    source a single mix receives -- and its ident is "<source>:<mix>".
 
     Settings written before targets existed named a mix directly; they are
     read as mix targets rather than being discarded, so a key placed earlier
@@ -81,7 +85,14 @@ def parse_target(settings):
     kind, _, ident = raw.partition(":")
     if kind in ("mix", "src") and ident:
         return kind, ident
+    if kind == "cell" and ident.count(":") == 1 and all(ident.split(":")):
+        return kind, ident
     return None, None
+
+
+def split_cell(ident):
+    source_id, _, mix_id = ident.partition(":")
+    return source_id, mix_id
 
 
 class Plugin:
@@ -138,7 +149,7 @@ class Plugin:
                 (owstate.mixes().get(ident) or {}).get("icon_name"), "speaker")
             if not sink or not graph.sink_exists(sink):
                 return {"name": name, "percent": 0, "muted": False,
-                        "glyph": glyph, "ok": False}
+                        "glyph": glyph, "ok": False, "context": ""}
             volume = graph.get_volume(sink)
             return {
                 "name": name,
@@ -146,11 +157,31 @@ class Plugin:
                 "muted": bool(graph.get_mute(sink)),
                 "glyph": glyph,
                 "ok": volume is not None,
+                "context": "",
             }
         data = self._openwave()
         if data is None:
             return {"name": "OpenWave", "percent": 0, "muted": False,
-                    "glyph": "mic", "ok": False}
+                    "glyph": "mic", "ok": False, "context": ""}
+        if kind == "cell":
+            source_id, mix_id = split_cell(ident)
+            cell = (data.get("cells") or {}).get(f"{source_id}.{mix_id}")
+            source = next((s for s in data.get("sources") or []
+                           if s.get("id") == source_id), None)
+            mix = next((m for m in data.get("mixes") or []
+                        if m.get("id") == mix_id), None)
+            if cell is None or source is None or mix is None:
+                return {"name": "Missing", "percent": 0, "muted": False,
+                        "glyph": "speaker", "ok": False, "context": ""}
+            return {
+                "name": source.get("name", source_id),
+                "percent": round(float(cell["volume"]) * 100),
+                "muted": bool(cell["muted"]),
+                "glyph": ("mic" if source.get("kind") == "device"
+                          else "speaker"),
+                "ok": True,
+                "context": mix.get("name", mix_id),
+            }
         for source in data.get("sources") or []:
             if source.get("id") != ident:
                 continue
@@ -161,9 +192,10 @@ class Plugin:
                 "muted": bool(source.get("muted")),
                 "glyph": "mic" if device else "speaker",
                 "ok": True,
+                "context": "",
             }
         return {"name": "Missing", "percent": 0, "muted": False,
-                "glyph": "speaker", "ok": False}
+                "glyph": "speaker", "ok": False, "context": ""}
 
     def _group_state(self, group):
         """(live microphone name, member count, its position) for a group."""
@@ -191,7 +223,8 @@ class Plugin:
     def _paint_strip(self, context, state):
         """The encoder's touch strip, drawn whole."""
         image = render.strip(state["name"], state["percent"], state["muted"],
-                             kind=state["glyph"], unavailable=not state["ok"])
+                             kind=state["glyph"], unavailable=not state["ok"],
+                             context=state.get("context", ""))
         if self._drawn.get((context, "strip")) == image:
             return
         self._drawn[(context, "strip")] = image
@@ -211,7 +244,8 @@ class Plugin:
             if encoder:
                 self._paint_strip(context, {
                     "name": "Pick a mix or source", "percent": 0,
-                    "muted": False, "glyph": "speaker", "ok": False})
+                    "muted": False, "glyph": "speaker", "ok": False,
+                    "context": ""})
             else:
                 self._paint(context, render.unconfigured_key(
                     "Pick a mix", "or a source"))
@@ -221,7 +255,8 @@ class Plugin:
         else:
             self._paint(context, render.level_key(
                 state["name"], state["percent"], state["muted"],
-                kind=state["glyph"], unavailable=not state["ok"]))
+                kind=state["glyph"], unavailable=not state["ok"],
+                context=state.get("context", "")))
 
     def _render_group(self, context, settings):
         group = settings.get("group")
@@ -255,6 +290,9 @@ class Plugin:
         elif kind == "src":
             ipc.set_source_level(ident, value)
             self._openwave(force=True)
+        elif kind == "cell":
+            ipc.set_cell_level(*split_cell(ident), value)
+            self._openwave(force=True)
 
     def _adjust(self, context, ticks):
         settings = self._contexts.get(context) or {}
@@ -273,6 +311,11 @@ class Plugin:
                 self._send("showAlert", context)
                 return
             graph.toggle_mute(sink)
+        elif kind == "cell":
+            if ipc.toggle_cell_mute(*split_cell(ident)) is False:
+                self._send("showAlert", context)
+                return
+            self._openwave(force=True)
         elif kind == "src":
             if ipc.toggle_source_mute(ident) is False:
                 # A source's mute lives in OpenWave; with it closed there is
@@ -327,6 +370,17 @@ class Plugin:
                           else "Sources"),
                 "isDefault": False,
             })
+        # Sends last and grouped by mix, so the list reads the way the matrix
+        # does: a column is a mix, and the rows under it are what feeds it.
+        for mix in (data or {}).get("mixes") or []:
+            mix_id, mix_name = mix.get("id"), mix.get("name", mix.get("id"))
+            for source in (data or {}).get("sources") or []:
+                targets.append({
+                    "value": f"cell:{source.get('id')}:{mix_id}",
+                    "label": f"{source.get('name')} into {mix_name}",
+                    "group": f"Sends into {mix_name}",
+                    "isDefault": False,
+                })
         return {"targets": targets, "openwave": data is not None}
 
     # ------------------------------------------------------------- inbound

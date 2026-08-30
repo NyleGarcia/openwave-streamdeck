@@ -10,16 +10,26 @@ An [OpenDeck](https://github.com/nekename/OpenDeck) plugin for controlling
 | **Volume** | key, dial | only for microphones and sources |
 | **Mic Group** | key | yes |
 
-**Volume** controls one thing's level — a mix, a microphone, or an application
-source. Rotate a dial to adjust, press to mute; a key presses to mute too. The
-inspector lists all three kinds together, grouped, because from a dial's point
-of view they are the same job.
+**Volume** controls one thing's level. Rotate a dial to adjust, press to mute;
+a key presses to mute too. Four kinds of target, listed together because from a
+dial's point of view they are the same job:
 
-Underneath they are not. A mix is a PipeWire sink and its volume masters both
-paths out of that mix at once — what you hear, and what an application
-capturing the mix records — so it works whether OpenWave is open or not. A
-microphone or source is a **trim inside OpenWave**, applied ahead of the
-per-mix faders, so that half needs OpenWave running.
+| Target | Is |
+|---|---|
+| **Mix** | a mix's master — a PipeWire sink |
+| **Microphone** / **Source** | a row trim, applying in every mix at once |
+| **Send** | one matrix cell: how much of one source a *single* mix receives |
+
+Underneath they are not the same. A mix master is a PipeWire sink, so it works
+whether OpenWave is open or not. A trim and a send both live inside OpenWave —
+the send is the cell in the matrix, applied per mix; the trim sits ahead of all
+of them — so those need OpenWave running.
+
+Sends are listed grouped by the mix they feed, because that is how the matrix
+reads: a column is a mix, and the rows under it are what feeds it. On the key
+the source is the headline and the mix sits under it in smaller type — joined
+on one line, "Music → Chat Mix" truncates to "Music → Ch…" and loses the half
+that says where it goes.
 
 **Mic Group** hands a microphone group over to its next microphone: two mics on
 one speaker, one press to swap. The key shows which microphone is currently
@@ -90,10 +100,13 @@ Preferred transport is GObject introspection, which hands back real GVariants
 so the JSON snapshot survives with its quoting intact; `gdbus` is the fallback
 for the fire-and-forget calls when `gi` is not importable.
 
-Device gain and per-cell sends are still absent. OpenWave re-applies
-`send × trim` on every reconcile, so a value set from here would revert within
-a second, and an action that silently undoes itself is worse than one that is
-not offered.
+Sends were absent until OpenWave grew `set-cell-level` and `toggle-cell-mute`,
+for exactly this reason: OpenWave re-applies `send × trim` on every reconcile,
+so a cell written directly to `mixes.json` is undone within a second. Going
+through the window is not a nicety, it is the only thing that sticks.
+
+Device gain is still absent, and stays that way while the GUI holds the USB
+handle — the firmware serves one process at a time.
 
 ## Install
 

@@ -1,3 +1,10 @@
+## [0.1.1](https://github.com/NyleGarcia/openwave-streamdeck/compare/v0.1.0...v0.1.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* name each dial in the OpenDeck editor instead of "Mix" ([6117de1](https://github.com/NyleGarcia/openwave-streamdeck/commit/6117de10127d1efedc7b1fbf15a3d4c4ba220e6d))
+
 # [0.1.0](https://github.com/NyleGarcia/openwave-streamdeck/compare/v0.0.1...v0.1.0) (2026-08-30)
 
 

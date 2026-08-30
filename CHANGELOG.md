@@ -1,0 +1,24 @@
+# Changelog
+
+All notable changes to this project are documented here. This file is
+maintained by [semantic-release](https://semantic-release.gitbook.io/) from
+[Angular](https://www.conventionalcommits.org/) commit messages; entries below
+0.0.1 were written by hand, before that was wired up.
+
+## 0.0.1 (2026-08-29)
+
+First release. An OpenDeck plugin for driving OpenWave from a Stream Deck.
+
+### Features
+
+* **Volume** — set the level of a mix, a microphone or an application source
+  from a key or a dial; press to mute. Mixes are PipeWire sinks and work
+  whether OpenWave is open or not; microphones and sources are trims inside
+  OpenWave and are set over the session bus, because its `Mixer` rewrites
+  `sources.json` whole on every save and would discard an outside write.
+* **Mic Group** — hand a microphone group to its next microphone in one press.
+  The key shows which microphone currently has the floor.
+* Keys and the encoder touch strip are drawn as SVG, so the level, the mute and
+  the live microphone are legible at a glance: blue for a level, red for muted,
+  green for the open microphone.
+* Both lists are read live from OpenWave, never hardcoded.

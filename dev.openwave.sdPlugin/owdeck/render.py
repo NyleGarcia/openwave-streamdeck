@@ -65,6 +65,46 @@ def _fit(text, limit):
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
+def _wrap(text, per_line, max_lines=2):
+    """Break a name across lines rather than cutting it short.
+
+    "Arctis Nova Pro Wireless Mono" truncated to one line is "Arctis Nov…",
+    which does not identify anything; over two lines it is readable. Only the
+    overflow past the last line is ellipsised.
+    """
+    words, lines, current = str(text).split(), [], ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if len(candidate) <= per_line or not current:
+            current = candidate
+        else:
+            lines.append(current)
+            current = word
+            if len(lines) == max_lines:
+                break
+    if current and len(lines) < max_lines:
+        lines.append(current)
+    if not lines:
+        return [""]
+    consumed = len(" ".join(lines).split())
+    if consumed < len(words):
+        lines[-1] = _fit(lines[-1] + " " + words[consumed], per_line)
+    return [_fit(line, per_line) for line in lines]
+
+
+def _text_block(lines, centre_y, size, colour, weight="600", x=SIZE / 2,
+                anchor="middle"):
+    """One or two centred lines, kept vertically centred as a block."""
+    step = size + 4
+    top = centre_y - (len(lines) - 1) * step / 2
+    return "".join(
+        f'<text x="{x}" y="{top + i * step:.1f}" fill="{colour}" '
+        f'font-size="{size}" font-family="{FONT}" font-weight="{weight}" '
+        f'text-anchor="{anchor}">{_escape(line)}</text>'
+        for i, line in enumerate(lines)
+    )
+
+
 def _glyph(kind, colour, x, y, scale, muted=False):
     """One icon, drawn at (x, y) with its 24-unit grid scaled by `scale`."""
     shape = GLYPHS.get(kind, GLYPHS["speaker"])
@@ -127,25 +167,21 @@ def data_uri(svg):
 def level_key(name, percent, muted, kind="speaker", unavailable=False):
     """A volume key: what it controls, how loud it is, whether it is muted."""
     if unavailable:
-        accent = IDLE
-        body = (
-            _glyph(kind, IDLE, 54, 34, 1.5)
-            + f'<text x="{SIZE / 2}" y="112" fill="{DIM}" font-size="17" '
-            f'font-family="{FONT}" text-anchor="middle">{_escape(name)}</text>'
-        )
-        return _document(body, accent)
+        return _document(
+            _glyph(kind, IDLE, 50, 28, 1.75)
+            + _text_block(_wrap(name, 13), 108, 19, DIM),
+            IDLE)
 
     accent = MUTED if muted else LIVE
-    readout = "MUTED" if muted else f"{percent}%"
+    lines = _wrap(name, 12)
     body = (
-        _glyph(kind, accent, 12, 10, 1.15, muted=muted)
-        + f'<text x="{SIZE - 12}" y="38" fill="{accent}" font-size="26" '
+        _glyph(kind, accent, 11, 11, 1.3, muted=muted)
+        + f'<text x="{SIZE - 13}" y="42" fill="{accent}" font-size="30" '
         f'font-family="{FONT}" font-weight="bold" text-anchor="end">'
-        f'{_escape(readout)}</text>'
-        + f'<text x="{SIZE / 2}" y="86" fill="{TEXT}" font-size="19" '
-        f'font-family="{FONT}" text-anchor="middle">'
-        f'{_escape(_fit(name, 13))}</text>'
-        + _bar(percent / 100.0, accent, 108, muted)
+        f'{"MUTED" if muted else f"{percent}%"}</text>'
+        + _text_block(lines, 92 if len(lines) > 1 else 96,
+                      23 if len(lines) == 1 else 20, TEXT)
+        + _bar(percent / 100.0, accent, 118, muted)
     )
     return _document(body, accent)
 
@@ -160,31 +196,26 @@ def group_key(group, live_name, member_count, position=0,
     what the key shows largest.
     """
     if unavailable:
-        body = (
-            _glyph("mic", IDLE, 54, 30, 1.5, muted=True)
-            + f'<text x="{SIZE / 2}" y="106" fill="{DIM}" font-size="16" '
-            f'font-family="{FONT}" text-anchor="middle">'
-            f'{_escape(_fit(group, 15))}</text>'
-            + f'<text x="{SIZE / 2}" y="126" fill="{DIM}" font-size="13" '
-            f'font-family="{FONT}" text-anchor="middle">OpenWave closed</text>'
-        )
-        return _document(body, IDLE)
+        return _document(
+            _glyph("mic", IDLE, 50, 24, 1.75, muted=True)
+            + _text_block(_wrap(group, 14), 104, 18, DIM)
+            + _text_block(["OpenWave closed"], 126, 13, DIM, weight="400"),
+            IDLE)
 
     live = bool(live_name)
     accent = MIC_LIVE if live else MUTED
-    counter = (f"{position}/{member_count}" if live and member_count
-               else f"{max(member_count, 0)} mics")
+    lines = _wrap(live_name or "all muted", 12)
     body = (
-        _glyph("mic", accent, 10, 8, 1.1, muted=not live)
-        + f'<text x="{SIZE - 12}" y="34" fill="{DIM}" font-size="15" '
+        _glyph("mic", accent, 11, 10, 1.3, muted=not live)
+        + f'<text x="{SIZE - 13}" y="34" fill="{DIM}" font-size="16" '
         f'font-family="{FONT}" text-anchor="end">'
         f'{_escape(_fit(group, 9))}</text>'
-        + f'<text x="{SIZE / 2}" y="88" fill="{TEXT}" font-size="19" '
-        f'font-family="{FONT}" text-anchor="middle">'
-        f'{_escape(_fit(live_name or "all muted", 13))}</text>'
-        + _glyph("swap", accent, 16, 104, 1.0)
-        + f'<text x="{SIZE - 16}" y="123" fill="{DIM}" font-size="14" '
-        f'font-family="{FONT}" text-anchor="end">{_escape(counter)}</text>'
+        + _text_block(lines, 90 if len(lines) > 1 else 94,
+                      23 if len(lines) == 1 else 20, TEXT)
+        + _glyph("swap", accent, 14, 104, 1.05)
+        + f'<text x="{SIZE - 15}" y="126" fill="{DIM}" font-size="14" '
+        f'font-family="{FONT}" text-anchor="end">'
+        f'{max(member_count, 0)} mics</text>'
     )
     return _document(body, accent)
 
@@ -192,25 +223,50 @@ def group_key(group, live_name, member_count, position=0,
 def unconfigured_key(headline, hint, kind="speaker"):
     """The key before anything has been chosen for it in the inspector."""
     body = (
-        _glyph(kind, IDLE, 54, 26, 1.5)
-        + f'<text x="{SIZE / 2}" y="102" fill="{TEXT}" font-size="18" '
-        f'font-family="{FONT}" text-anchor="middle">{_escape(headline)}</text>'
-        + f'<text x="{SIZE / 2}" y="124" fill="{DIM}" font-size="14" '
-        f'font-family="{FONT}" text-anchor="middle">{_escape(hint)}</text>'
+        _glyph(kind, IDLE, 50, 22, 1.75)
+        + _text_block([headline], 100, 20, TEXT)
+        + _text_block([hint], 122, 15, DIM, weight="400")
     )
     return _document(body, IDLE)
 
 
-def strip_icon(kind, muted=False, live=True):
-    """The small pixmap slot of an encoder's touch strip, 48x48.
+STRIP_W, STRIP_H = 200, 100
 
-    The strip has its own text items, so this is the glyph alone: colour and
-    the slash carry the state, and repeating the name here would only crowd
-    the row the layout already reserves for it.
+
+def strip(name, percent, muted, kind="speaker", unavailable=False):
+    """The encoder's entire touch strip, as one image.
+
+    The $A0 layout exposes a full-canvas pixmap covering all 200x100, so the
+    strip is drawn the same way a key is instead of being assembled from a
+    title slot, a cramped 48x48 icon and a bar that cannot be moved. It also
+    sidesteps setImage: OpenDeck routes a key image into the layout's icon
+    item, which put a whole shrunken key card inside the strip.
     """
-    colour = MUTED if muted else (LIVE if live else IDLE)
-    body = _glyph(kind, colour, 4, 4, 1.65, muted=muted)
-    return (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" '
-        f'viewBox="0 0 48 48">{body}</svg>'
+    accent = IDLE if unavailable else (MUTED if muted else LIVE)
+    readout = "--" if unavailable else ("MUTED" if muted else f"{percent}%")
+    # Two rows rather than one. The strip is 200 wide, and a name and a large
+    # readout on the same line overlap the moment the name is longer than
+    # "System" -- so the name gets the top row to itself and the readout sits
+    # beside the bar underneath, where nothing competes with it.
+    bar_x, bar_w, bar_h, bar_y = 12, 108, 14, 62
+    filled = 0.0 if (muted or unavailable) else \
+        max(0.0, min(1.0, percent / 100.0)) * bar_w
+    body = (
+        f'<rect width="{STRIP_W}" height="{STRIP_H}" fill="{BG}"/>'
+        + _glyph(kind, accent, 10, 8, 1.45, muted=muted and not unavailable)
+        + f'<text x="54" y="38" fill="{TEXT}" font-size="23" '
+        f'font-family="{FONT}" font-weight="600">'
+        f'{_escape(_fit(name, 12))}</text>'
+        + f'<rect x="{bar_x}" y="{bar_y}" width="{bar_w}" height="{bar_h}" '
+        f'rx="{bar_h / 2}" fill="#2b2f35"/>'
     )
+    if filled > 1.0:
+        body += (f'<rect x="{bar_x}" y="{bar_y}" width="{filled:.1f}" '
+                 f'height="{bar_h}" rx="{bar_h / 2}" fill="{accent}"/>')
+    body += (f'<text x="{STRIP_W - 12}" y="{bar_y + bar_h - 1}" '
+             f'fill="{accent}" font-size="23" font-family="{FONT}" '
+             f'font-weight="bold" text-anchor="end">'
+             f'{_escape(readout)}</text>')
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{STRIP_W}" '
+            f'height="{STRIP_H}" viewBox="0 0 {STRIP_W} {STRIP_H}">'
+            f'{body}</svg>')

@@ -14,4 +14,5 @@ exec env \
   -u GIO_EXTRA_MODULES -u GSETTINGS_SCHEMA_DIR -u GDK_PIXBUF_MODULE_FILE \
   -u APPDIR -u APPIMAGE -u ARGV0 -u OWD \
   PATH=/usr/bin:/bin:/usr/local/bin \
+  OPENWAVE_DECK_DEBUG="${OPENWAVE_DECK_DEBUG:-}" \
   /usr/bin/python3 "$(dirname "$0")/plugin.py" "$@"

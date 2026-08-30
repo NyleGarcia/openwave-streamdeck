@@ -30,7 +30,8 @@ from owdeck.ws import WebSocket                  # noqa: E402
 
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plugin.log")
 logging.basicConfig(
-    filename=LOG_PATH, level=logging.INFO,
+    filename=LOG_PATH,
+    level=logging.DEBUG if os.environ.get("OPENWAVE_DECK_DEBUG") else logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
 )
 log = logging.getLogger("openwave-deck")
@@ -49,7 +50,10 @@ REFRESH_SECONDS = 1.0
 # so a deck full of source dials costs one bus round trip per tick, not one
 # per key.
 SNAPSHOT_SECONDS = 0.9
-ENCODER_LAYOUT = "$B1"
+# $A0 is the only built-in layout with a full-canvas pixmap: the whole
+# 200x100 strip as one image, which is what lets the strip be drawn
+# rather than assembled from a title, a 48x48 icon slot and a fixed bar.
+ENCODER_LAYOUT = "$A0"
 
 # Mix icons come from OpenWave's own choice for the column, so a mix that
 # looks like headphones in the window looks like headphones on the deck.
@@ -97,6 +101,7 @@ class Plugin:
         message = {"event": event, "context": context}
         if payload is not None:
             message["payload"] = payload
+        log.debug("-> %s %s", event, str(payload)[:160])
         try:
             self._ws.send_json(message)
         except (OSError, ConnectionError) as exc:
@@ -180,24 +185,18 @@ class Plugin:
         self._send("setTitle", context, {"title": title, "target": 0})
 
     def _paint_strip(self, context, state):
-        """The encoder's touch strip, via the $B1 layout."""
-        accent = render.MUTED if state["muted"] else render.LIVE
-        feedback = {
-            "title": state["name"],
-            "icon": render.data_uri(
-                render.strip_icon(state["glyph"], muted=state["muted"],
-                                  live=state["ok"])),
-            "value": "MUTED" if state["muted"] else f"{state['percent']}%",
-            "indicator": {
-                "value": 0 if state["muted"] else state["percent"],
-                "bar_fill_c": accent,
-            },
-        }
-        key = ("strip",) + tuple(sorted(str(v) for v in feedback.values()))
-        if self._drawn.get((context, "strip")) == key:
+        """The encoder's touch strip, drawn whole."""
+        image = render.strip(state["name"], state["percent"], state["muted"],
+                             kind=state["glyph"], unavailable=not state["ok"])
+        if self._drawn.get((context, "strip")) == image:
             return
-        self._drawn[(context, "strip")] = key
-        self._send("setFeedback", context, feedback)
+        self._drawn[(context, "strip")] = image
+        self._send("setFeedback", context, {
+            "full-canvas": render.data_uri(image),
+            # The layout draws its title over the canvas; the canvas already
+            # carries the name, so it is cleared rather than doubled.
+            "title": "",
+        })
 
     def _render(self, context):
         """Draw one instance from live audio state."""
@@ -206,19 +205,23 @@ class Plugin:
             self._render_group(context, settings)
             return
 
+        encoder = settings.get("controller") == "Encoder"
         state = self._read(settings)
         if state is None:
-            self._paint(context, render.unconfigured_key(
-                "Pick a mix", "or a source"))
-            if settings.get("controller") == "Encoder":
-                self._send("setFeedback", context,
-                           {"title": "OpenWave", "value": "--"})
+            if encoder:
+                self._paint_strip(context, {
+                    "name": "Pick a mix or source", "percent": 0,
+                    "muted": False, "glyph": "speaker", "ok": False})
+            else:
+                self._paint(context, render.unconfigured_key(
+                    "Pick a mix", "or a source"))
             return
-        self._paint(context, render.level_key(
-            state["name"], state["percent"], state["muted"],
-            kind=state["glyph"], unavailable=not state["ok"]))
-        if settings.get("controller") == "Encoder":
+        if encoder:
             self._paint_strip(context, state)
+        else:
+            self._paint(context, render.level_key(
+                state["name"], state["percent"], state["muted"],
+                kind=state["glyph"], unavailable=not state["ok"]))
 
     def _render_group(self, context, settings):
         group = settings.get("group")
@@ -357,7 +360,24 @@ class Plugin:
                 self._switch_group(context)
             else:
                 self._toggle_mute(context)
+        elif event == "propertyInspectorDidAppear":
+            # Pushed, not waited for. The panel asks once when its webview is
+            # built, which can be long before anyone looks at it, and a reply
+            # that arrives while it is still loading -- or is missed because
+            # the webview was rebuilt on the way to being shown -- leaves a
+            # dropdown reading "Loading…" with nothing to retry it. This
+            # event fires exactly when the panel is on screen, so answering
+            # it unprompted makes the lists correct at the only moment they
+            # are being read.
+            self._send("sendToPropertyInspector", context,
+                       self._inspector_payload(
+                           message.get("action")
+                           or (self._contexts.get(context) or {}).get("action")
+                           or VOLUME))
         elif event == "sendToPlugin":
+            if payload.get("debug"):
+                log.info("PI[%s] %s", context, payload["debug"])
+                return
             # The inspector asks what to offer; the lists are whatever
             # OpenWave currently has, never a hardcoded set.
             action = (payload.get("action")
@@ -375,6 +395,7 @@ class Plugin:
                 if ready:
                     raw = self._ws.receive()
                     if raw:
+                        log.debug("<- %s", raw[:400])
                         try:
                             self._handle(json.loads(raw))
                         except Exception:          # noqa: BLE001

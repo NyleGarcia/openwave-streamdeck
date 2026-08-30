@@ -66,6 +66,9 @@ function render(payload) {
     }
     select.appendChild(optgroup);
   }
+  OpenWave.report(`rendered ${select.options.length} options, `
+    + `${groups.size} groups, chosen=${chosen || "none"}, `
+    + `visible=${!!select.offsetParent}`);
 
   if (!payload.openwave) {
     warn.textContent = "OpenWave is not running, so only mixes are listed. "

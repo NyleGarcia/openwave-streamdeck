@@ -349,11 +349,23 @@ class TestDrawing(PluginCase):
                         "settings": {"target": "mix:chat"}},
         })
         feedback = self.events("setFeedback")[0]["payload"]
-        # $B1 names exactly these; a key it does not define is rejected.
-        self.assertEqual(set(feedback), {"title", "icon", "value",
-                                         "indicator"})
-        self.assertEqual(feedback["value"], "MUTED")
-        self.assertEqual(feedback["indicator"]["value"], 0)
+        # $A0 names exactly these; a key it does not define is rejected.
+        self.assertEqual(set(feedback), {"full-canvas", "title"})
+        self.assertTrue(feedback["full-canvas"].startswith(
+            "data:image/svg+xml;base64,"))
+        # The canvas carries the name, so the layout's own title is cleared
+        # rather than drawn over the top of it.
+        self.assertEqual(feedback["title"], "")
+
+    def test_an_encoder_is_sent_no_key_image(self):
+        """OpenDeck routes setImage into the layout's icon slot, which put a
+        shrunken copy of a whole key inside the touch strip."""
+        self.plugin._handle({
+            "event": "willAppear", "context": "e", "action": P.VOLUME,
+            "payload": {"controller": "Encoder",
+                        "settings": {"target": "mix:chat"}},
+        })
+        self.assertEqual(self.events("setImage"), [])
 
     def test_a_keypad_sends_no_feedback(self):
         self.place("c", P.VOLUME, {"target": "mix:chat"})
@@ -409,6 +421,9 @@ class TestRendering(unittest.TestCase):
     def test_keys_are_well_formed_svg(self):
         import xml.etree.ElementTree as ET
         for svg in (
+            render.strip("Personal Mix", 100, False, "headphones"),
+            render.strip("XLR Dock", 0, True, "mic"),
+            render.strip("Nothing", 0, False, unavailable=True),
             render.level_key("Personal Mix", 72, False, "headphones"),
             render.level_key("XLR Dock", 100, True, "mic"),
             render.level_key("Gone", 0, False, unavailable=True),
@@ -416,7 +431,6 @@ class TestRendering(unittest.TestCase):
             render.group_key("Mic", "", 2),
             render.group_key("Mic", "", 0, unavailable=True),
             render.unconfigured_key("Pick a mix", "or a source"),
-            render.strip_icon("mic", muted=True),
         ):
             ET.fromstring(svg)
 
@@ -436,6 +450,23 @@ class TestRendering(unittest.TestCase):
         import xml.etree.ElementTree as ET
         root = ET.fromstring(render.level_key('<b>&"x', 50, False))
         self.assertTrue(any("<b>&" in (e.text or "") for e in root.iter()))
+
+    def test_long_names_wrap_instead_of_being_cut(self):
+        """"Arctis Nov…" identifies nothing; two lines identify the device."""
+        self.assertEqual(render._wrap("Arctis Nova Pro Wireless Mono", 12),
+                         ["Arctis Nova", "Pro Wireles…"])
+
+    def test_a_short_name_stays_on_one_line(self):
+        self.assertEqual(render._wrap("XLR Dock", 12), ["XLR Dock"])
+
+    def test_a_single_unbreakable_word_is_truncated(self):
+        self.assertEqual(render._wrap("Supercalifragilistic", 12),
+                         ["Supercalifr…"])
+
+    def test_the_strip_is_the_whole_touch_canvas(self):
+        svg = render.strip("System", 65, False)
+        self.assertIn('width="200"', svg)
+        self.assertIn('height="100"', svg)
 
     def test_data_uri_is_what_opendeck_accepts(self):
         uri = render.data_uri(render.level_key("A", 50, False))

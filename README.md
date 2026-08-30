@@ -39,8 +39,15 @@ per combination.
 
 The colour is the state: blue for a normal level, **red for muted** (with the
 glyph struck through), **green for the microphone that currently has the
-floor**. Encoders additionally drive the touch strip through the `$B1` layout,
-with the indicator bar recoloured to match.
+floor**. Long names wrap to a second line rather than truncating — "Arctis
+Nov…" identifies nothing.
+
+Encoders use the **`$A0`** layout, the only built-in one with a `full-canvas`
+pixmap: the whole 200×100 strip as a single image, so it is drawn the same way
+a key is instead of being assembled from a title slot, a cramped 48×48 icon and
+a bar that cannot be moved. Encoders are deliberately sent **no** `setImage` —
+OpenDeck routes a key image into the layout's icon slot, which puts a shrunken
+copy of an entire key inside the strip.
 
 ## How it talks to things
 
@@ -108,7 +115,7 @@ dev.openwave.sdPlugin/
   owdeck/ipc.py     org.gtk.Actions calls into a running OpenWave
   owdeck/render.py  the SVG the keys are drawn from
   pi/               property inspectors
-tests/              45 stdlib unittest cases, no dependencies
+tests/              50 stdlib unittest cases, no dependencies
 ```
 
 Run them with `python3 -m unittest discover -s tests -t .`.
@@ -120,6 +127,25 @@ sinks whenever mixes are installed.
 Nothing in `plugin.py` may raise to the top level. OpenDeck does not restart a
 plugin that dies — the keys just stop responding, with nothing to say why.
 
+## Debugging
+
+A property inspector runs in a webview inside a Tauri window, where nothing can
+read its console — so it reports what it did back to the plugin, which has a
+log file:
+
+```
+PI[sd-…Encoder.0.0] payload 833b
+PI[sd-…Encoder.0.0] rendered 11 options, 3 groups, chosen=none, visible=true
+```
+
+Uncaught errors are reported the same way. Set `OPENWAVE_DECK_DEBUG=1` in
+OpenDeck's environment for the full event firehose in `plugin.log`; without it
+only the inspector reports and real errors are logged.
+
+`pi/` pages can also be driven outside OpenDeck entirely — WebKitGTK is the
+same engine the panel runs in, so loading one with a stubbed socket shows
+exactly what the page builds.
+
 ## Writing a property inspector
 
 The context to send on is **`inActionInfo.context`** — the action's context,
@@ -127,6 +153,11 @@ not the inspector's own uuid. Sending the uuid is accepted by the socket and
 then routed nowhere: settings are never saved, the plugin is never asked for
 its lists, and the panel sits empty with nothing in any log to explain it.
 `pi/_shared.js` handles that, and both connect conventions OpenDeck ships.
+
+Asking once is also not enough. The panel's webview is built well before anyone
+looks at it — often ten seconds before — so the panel retries until it gets an
+answer, and the plugin **pushes** the lists on `propertyInspectorDidAppear`,
+which fires at the only moment they are actually being read.
 
 ## Status
 

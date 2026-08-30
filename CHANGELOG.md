@@ -1,3 +1,15 @@
+# [0.3.0](https://github.com/NyleGarcia/openwave-streamdeck/compare/v0.2.0...v0.3.0) (2026-08-30)
+
+
+### Bug Fixes
+
+* name the per-mix action for what it does, not for the desk term ([905c29b](https://github.com/NyleGarcia/openwave-streamdeck/commit/905c29b531f2152dbcdab917e141d1fb84251323))
+
+
+### Features
+
+* choose a source and a mix in two dropdowns ([ca182fe](https://github.com/NyleGarcia/openwave-streamdeck/commit/ca182fe0b92c0aa5ac811ef94ce1f8df2e3d3227))
+
 # [0.2.0](https://github.com/NyleGarcia/openwave-streamdeck/compare/v0.1.1...v0.2.0) (2026-08-30)
 
 

@@ -97,9 +97,12 @@ not offered.
 
 ## Install
 
+Download `openwave-streamdeck-<version>.zip` from
+[Releases](https://github.com/NyleGarcia/openwave-streamdeck/releases) and
+install it through OpenDeck, or from a checkout:
+
 ```bash
-cp -r dev.openwave.sdPlugin ~/.config/opendeck/plugins/
-# restart OpenDeck
+make install     # copies into ~/.config/opendeck/plugins, then restart OpenDeck
 ```
 
 Requires an **unsandboxed** OpenDeck — the AppImage or a native package. The
@@ -128,7 +131,40 @@ dev.openwave.sdPlugin/
 tests/              50 stdlib unittest cases, no dependencies
 ```
 
-Run them with `python3 -m unittest discover -s tests -t .`.
+```bash
+make check       # bundle validation, byte-compile, shell syntax, tests
+make test        # tests only
+make package     # build the release zip into dist/
+```
+
+`scripts/validate_plugin.py` is the part worth having: OpenDeck fails a broken
+plugin *quietly*. A missing property inspector gives an empty panel, a missing
+layout gives a blank touch strip, and neither writes anything to any log. The
+validator resolves every path the manifest names — inspectors, layouts, icons,
+each state image, every module the entry point imports — so a bundle that would
+fail silently on a deck fails loudly in CI instead.
+
+## Releasing
+
+Versioning is [semantic-release](https://semantic-release.gitbook.io/) driven
+by [Angular](https://www.conventionalcommits.org/) commit messages on `main`:
+
+| Commit prefix | Bump |
+|---|---|
+| `fix:` | patch |
+| `feat:` | minor |
+| `polish:` | patch |
+| `BREAKING CHANGE:` in the body | major |
+| `chore:`, `docs:`, `refactor:`, `test:` | none |
+
+A release writes the version into `dev.openwave.sdPlugin/manifest.json` as well
+as tagging — the manifest is the only place a version is visible to someone
+using the plugin — updates `CHANGELOG.md`, and attaches the installable zip to
+the GitHub release. `next` publishes prereleases.
+
+The zip contains the `dev.openwave.sdPlugin` directory *at its root*, which is
+what OpenDeck's installer expects; a zip of that directory's contents installs a
+plugin with no manifest where one should be.
 
 Node ids are resolved by `node.name` on every use, never cached: they are
 reassigned whenever a node reappears, and OpenWave destroys and recreates its

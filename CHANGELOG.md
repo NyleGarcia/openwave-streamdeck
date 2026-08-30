@@ -1,3 +1,10 @@
+# [0.2.0](https://github.com/NyleGarcia/openwave-streamdeck/compare/v0.1.1...v0.2.0) (2026-08-30)
+
+
+### Features
+
+* split Volume into Mix Volume, Source Volume and Mix Send ([27fd6b2](https://github.com/NyleGarcia/openwave-streamdeck/commit/27fd6b29f0f193b80f811ae2561a91f62c328122))
+
 ## [0.1.1](https://github.com/NyleGarcia/openwave-streamdeck/compare/v0.1.0...v0.1.1) (2026-08-30)
 
 

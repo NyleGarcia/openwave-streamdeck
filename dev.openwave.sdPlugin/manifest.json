@@ -2,7 +2,7 @@
   "Name": "OpenWave",
   "Description": "Control OpenWave's mixes from a Stream Deck.",
   "Author": "Zedwil",
-  "Version": "0.1.1",
+  "Version": "0.2.0",
   "Icon": "icons/plugin",
   "Category": "OpenWave",
   "SDKVersion": 2,

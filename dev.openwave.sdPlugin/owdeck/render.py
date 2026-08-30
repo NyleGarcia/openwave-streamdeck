@@ -197,10 +197,14 @@ def level_key(name, percent, muted, kind="speaker", unavailable=False,
         # source differ only in what pressing them does, and the level they
         # all show is identical. The bar gives up its right-hand end for it.
         body += _bar(percent / 100.0, accent, 118, muted, width=SIZE - 62)
+        # The sign is bound out here: an escape inside an f-string
+        # expression is a syntax error before Python 3.12, and this runs on
+        # whatever python3 the host distribution ships.
+        sign = "+" if press == "up" else "\u2212"
         body += (
             f'<text x="{SIZE - 14}" y="127" fill="{accent}" font-size="17" '
             f'font-family="{FONT}" font-weight="bold" text-anchor="end">'
-            f'{"+" if press == "up" else "\u2212"}{step}</text>'
+            f'{sign}{step}</text>'
         )
     else:
         body += _bar(percent / 100.0, accent, 118, muted)

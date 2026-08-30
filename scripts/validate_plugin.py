@@ -7,6 +7,7 @@ anything to a log. Nothing here needs a Stream Deck, so it can gate a release
 in a way that hardware testing cannot.
 """
 
+import ast
 import json
 import os
 import re
@@ -15,6 +16,10 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUNDLE = os.path.join(ROOT, "dev.openwave.sdPlugin")
 SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
+# The oldest Python the plugin claims to run on. It executes against whatever
+# python3 the host distribution ships, not one it chooses, so syntax newer
+# than this is a crash on someone's machine rather than a style question.
+OLDEST_PYTHON = (3, 10)
 # Layouts named with a leading $ are built into OpenDeck and have no file.
 BUILTIN_LAYOUT = re.compile(r"^\$[A-Z]\d$")
 # Elgato omits the extension in manifest image references.
@@ -27,6 +32,61 @@ def check(condition, message):
     if not condition:
         problems.append(message)
     return condition
+
+
+def _modules():
+    for root, _dirs, files in os.walk(BUNDLE):
+        for name in sorted(files):
+            if name.endswith(".py"):
+                yield os.path.join(root, name)
+
+
+# A backslash inside the expression part of an f-string. Legal from 3.12
+# (PEP 701), a SyntaxError before it. compileall cannot see this because it
+# uses the interpreter running it, and ast.parse's feature_version does not
+# either -- the rule lives in the tokenizer, not the grammar. Checked with a
+# scanner because the alternative is having no 3.10 interpreter to ask.
+_FSTRING = re.compile(r"(?<![\w])([fF][rR]?|[rR][fF])(\'\'\'|\"\"\"|\'|\")")
+
+
+def _fstring_expressions(line):
+    """Yield the {...} parts of every f-string opened on one line."""
+    for match in _FSTRING.finditer(line):
+        quote = match.group(2)
+        rest = line[match.end():]
+        end = rest.find(quote)
+        body = rest if end < 0 else rest[:end]
+        depth, buf = 0, ""
+        for ch in body:
+            if ch == "{":
+                depth += 1
+                if depth == 1:
+                    buf = ""
+                    continue
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    yield buf
+                    continue
+            if depth >= 1:
+                buf += ch
+
+
+def check_old_grammar(path):
+    for number, line in enumerate(open(path), 1):
+        for expression in _fstring_expressions(line):
+            if "\\" in expression:
+                problems.append(
+                    f"{os.path.relpath(path, ROOT)}:{number} puts a backslash "
+                    f"inside an f-string expression, which is a SyntaxError "
+                    f"before Python 3.12; bind it to a name first")
+    try:
+        ast.parse(open(path).read(), filename=path,
+                  feature_version=OLDEST_PYTHON)
+    except SyntaxError as exc:
+        problems.append(
+            f"{os.path.relpath(path, ROOT)}:{exc.lineno} is not valid Python "
+            f"{OLDEST_PYTHON[0]}.{OLDEST_PYTHON[1]}: {exc.msg}")
 
 
 def resolve_image(reference):
@@ -91,6 +151,9 @@ def main():
                     check("key" in item and "type" in item and "rect" in item,
                           f"{uuid}: layout {layout} has an item missing "
                           f"key/type/rect")
+
+    for path in _modules():
+        check_old_grammar(path)
 
     # Every file the entry point will import must be present in the bundle:
     # a module left out of a release zip is only discovered on someone's deck.

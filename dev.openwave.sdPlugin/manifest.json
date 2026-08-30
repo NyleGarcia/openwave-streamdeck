@@ -1,0 +1,65 @@
+{
+  "Name": "OpenWave",
+  "Description": "Control OpenWave's mixes from a Stream Deck.",
+  "Author": "Zedwil",
+  "Version": "0.1.0",
+  "Icon": "icons/plugin",
+  "Category": "OpenWave",
+  "SDKVersion": 2,
+  "CodePath": "run.sh",
+  "CodePathLin": "run.sh",
+  "Software": {
+    "MinimumVersion": "6.0"
+  },
+  "OS": [
+    {
+      "Platform": "linux",
+      "MinimumVersion": "0"
+    }
+  ],
+  "Actions": [
+    {
+      "Name": "Mix Level",
+      "UUID": "dev.openwave.mixlevel",
+      "Icon": "icons/mixlevel",
+      "Tooltip": "Volume of one OpenWave mix. Press to mute.",
+      "Controllers": [
+        "Keypad",
+        "Encoder"
+      ],
+      "SupportedInMultiActions": false,
+      "States": [
+        {
+          "Image": "icons/mixlevel",
+          "Title": "Mix"
+        }
+      ],
+      "Encoder": {
+        "layout": "$B1",
+        "TriggerDescription": {
+          "Rotate": "Adjust level",
+          "Push": "Mute",
+          "Touch": "Mute"
+        }
+      },
+      "PropertyInspectorPath": "pi/mixlevel.html"
+    },
+    {
+      "Name": "Mic Group",
+      "UUID": "dev.openwave.micgroup",
+      "Icon": "icons/micgroup",
+      "Tooltip": "Hand a microphone group over to its next microphone.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "SupportedInMultiActions": false,
+      "PropertyInspectorPath": "pi/micgroup.html",
+      "States": [
+        {
+          "Image": "icons/micgroup",
+          "Title": "Mic"
+        }
+      ]
+    }
+  ]
+}

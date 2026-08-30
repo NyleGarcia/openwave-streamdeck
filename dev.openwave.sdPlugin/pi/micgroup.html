@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OpenWave — Mic Group</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 12px;
+    font: 13px/1.45 system-ui, sans-serif;
+    color: #e6e6e6; background: #2b2b2b;
+  }
+  label { display: block; margin-bottom: 6px; font-weight: 600; font-size: 12px; }
+  select {
+    width: 100%; padding: 7px 8px; border-radius: 7px;
+    border: 1px solid #555; background: #3a3a3a; color: #fff; font-size: 13px;
+  }
+  p.hint { margin: 10px 0 0; font-size: 11px; color: #a8a8a8; }
+  p.warn { margin: 10px 0 0; font-size: 11px; color: #f5a623; }
+</style>
+</head>
+<body>
+  <label for="group">Microphone group</label>
+  <select id="group"><option value="">Loading…</option></select>
+  <p class="hint">
+    Press the key to hand the group over to its next microphone. Only one
+    microphone in a group is live at a time.
+  </p>
+  <p class="warn" id="warn" hidden></p>
+
+<script>
+window.connectElgatoStreamDeckSocket = connect;
+window.connectOpenActionSocket = connect;
+
+let ws = null;
+let uuid = null;
+let settings = {};
+
+function connect(port, inUUID, registerEvent, _info, actionInfo) {
+  uuid = inUUID;
+  try { settings = JSON.parse(actionInfo).payload.settings || {}; } catch (e) { settings = {}; }
+  ws = new WebSocket("ws://127.0.0.1:" + port);
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ event: registerEvent, uuid: uuid }));
+    ws.send(JSON.stringify({
+      event: "sendToPlugin", context: uuid, payload: { request: "groups" },
+    }));
+  };
+  ws.onmessage = (event) => {
+    let message;
+    try { message = JSON.parse(event.data); } catch (e) { return; }
+    if (message.event === "sendToPropertyInspector") {
+      render(message.payload || {});
+    }
+  };
+}
+
+function render(payload) {
+  const select = document.getElementById("group");
+  const warn = document.getElementById("warn");
+  const groups = payload.groups || [];
+  select.innerHTML = "";
+  warn.hidden = true;
+
+  if (!payload.openwave) {
+    // Which microphone is live is OpenWave's state, not PipeWire's, so this
+    // action needs it running rather than merely installed.
+    select.innerHTML = '<option value="">OpenWave is not running</option>';
+    warn.textContent = "Start OpenWave, then reopen this panel.";
+    warn.hidden = false;
+    return;
+  }
+  if (groups.length === 0) {
+    select.innerHTML = '<option value="">No groups yet</option>';
+    warn.textContent = "Group two microphones in OpenWave first: drag one row "
+      + "onto the middle of another.";
+    warn.hidden = false;
+    return;
+  }
+
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Choose a group…";
+  select.appendChild(placeholder);
+  for (const name of groups) {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    if (name === settings.group) option.selected = true;
+    select.appendChild(option);
+  }
+
+  select.onchange = () => {
+    settings.group = select.value;
+    ws.send(JSON.stringify({
+      event: "setSettings", context: uuid, payload: settings,
+    }));
+  };
+}
+</script>
+</body>
+</html>

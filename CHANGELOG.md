@@ -1,3 +1,10 @@
+# [0.1.0](https://github.com/NyleGarcia/openwave-streamdeck/compare/v0.0.1...v0.1.0) (2026-08-30)
+
+
+### Features
+
+* control per-mix sends, and draw proper icons ([083cad6](https://github.com/NyleGarcia/openwave-streamdeck/commit/083cad6e26dcc3285fdab9d645d667735e34e4f5))
+
 # Changelog
 
 All notable changes to this project are documented here. This file is

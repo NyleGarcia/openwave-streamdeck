@@ -42,12 +42,21 @@ glyph struck through), **green for the microphone that currently has the
 floor**. Long names wrap to a second line rather than truncating — "Arctis
 Nov…" identifies nothing.
 
-Encoders use the **`$A0`** layout, the only built-in one with a `full-canvas`
-pixmap: the whole 200×100 strip as a single image, so it is drawn the same way
-a key is instead of being assembled from a title slot, a cramped 48×48 icon and
-a bar that cannot be moved. Encoders are deliberately sent **no** `setImage` —
-OpenDeck routes a key image into the layout's icon slot, which puts a shrunken
-copy of an entire key inside the strip.
+Encoders use **`layouts/strip.json`**, a layout of our own holding exactly one
+pixmap item across the whole 200×100 strip, so it is drawn the same way a key
+is instead of being assembled from a title slot, a cramped 48×48 icon and a bar
+that cannot be moved.
+
+None of the built-in layouts will do, including `$A0` — which does expose a
+full-canvas pixmap, but carries a title item and a second canvas alongside it,
+and OpenDeck draws **both over the top**: the title falls back to the action's
+name rather than staying empty when set to `""`, and the unset canvas paints a
+transparency checkerboard across the middle. A layout with one item cannot do
+either.
+
+Encoders are also sent **no** `setImage` — OpenDeck routes a key image into the
+layout's icon slot, which puts a shrunken copy of an entire key inside the
+strip.
 
 ## How it talks to things
 
@@ -114,6 +123,7 @@ dev.openwave.sdPlugin/
   owdeck/owstate.py read-only readers for OpenWave's JSON
   owdeck/ipc.py     org.gtk.Actions calls into a running OpenWave
   owdeck/render.py  the SVG the keys are drawn from
+  layouts/          the encoder strip layout
   pi/               property inspectors
 tests/              50 stdlib unittest cases, no dependencies
 ```

@@ -339,6 +339,9 @@ class TestDrawing(PluginCase):
         })
         names = [m["event"] for m in self.ws.sent]
         self.assertIn("setFeedbackLayout", names)
+        self.assertEqual(
+            self.events("setFeedbackLayout")[0]["payload"]["layout"],
+            "layouts/strip.json")
         self.assertLess(names.index("setFeedbackLayout"),
                         names.index("setFeedback"))
 
@@ -349,13 +352,12 @@ class TestDrawing(PluginCase):
                         "settings": {"target": "mix:chat"}},
         })
         feedback = self.events("setFeedback")[0]["payload"]
-        # $A0 names exactly these; a key it does not define is rejected.
-        self.assertEqual(set(feedback), {"full-canvas", "title"})
-        self.assertTrue(feedback["full-canvas"].startswith(
+        # Our layout defines exactly one item, and OpenDeck rejects a key it
+        # does not define. Anything extra here would also be drawn over the
+        # canvas, which is the whole reason the built-in layouts were dropped.
+        self.assertEqual(set(feedback), {"canvas"})
+        self.assertTrue(feedback["canvas"].startswith(
             "data:image/svg+xml;base64,"))
-        # The canvas carries the name, so the layout's own title is cleared
-        # rather than drawn over the top of it.
-        self.assertEqual(feedback["title"], "")
 
     def test_an_encoder_is_sent_no_key_image(self):
         """OpenDeck routes setImage into the layout's icon slot, which put a

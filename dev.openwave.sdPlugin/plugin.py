@@ -50,10 +50,14 @@ REFRESH_SECONDS = 1.0
 # so a deck full of source dials costs one bus round trip per tick, not one
 # per key.
 SNAPSHOT_SECONDS = 0.9
-# $A0 is the only built-in layout with a full-canvas pixmap: the whole
-# 200x100 strip as one image, which is what lets the strip be drawn
-# rather than assembled from a title, a 48x48 icon slot and a fixed bar.
-ENCODER_LAYOUT = "$A0"
+# Our own layout, not a built-in one. $A0 does expose a full-canvas pixmap,
+# but it also carries a title item and a second canvas -- and OpenDeck draws
+# BOTH over the top: the title falls back to the action's name ("Volume")
+# rather than staying empty when set to "", and the unset canvas paints a
+# transparency checkerboard across the middle of the strip. A layout with one
+# item cannot do either.
+ENCODER_LAYOUT = "layouts/strip.json"
+CANVAS = "canvas"
 
 # Mix icons come from OpenWave's own choice for the column, so a mix that
 # looks like headphones in the window looks like headphones on the deck.
@@ -191,12 +195,8 @@ class Plugin:
         if self._drawn.get((context, "strip")) == image:
             return
         self._drawn[(context, "strip")] = image
-        self._send("setFeedback", context, {
-            "full-canvas": render.data_uri(image),
-            # The layout draws its title over the canvas; the canvas already
-            # carries the name, so it is cleared rather than doubled.
-            "title": "",
-        })
+        self._send("setFeedback", context,
+                   {CANVAS: render.data_uri(image)})
 
     def _render(self, context):
         """Draw one instance from live audio state."""

@@ -35,7 +35,7 @@
         }
       ],
       "Encoder": {
-        "layout": "$B1",
+        "layout": "layouts/strip.json",
         "StackColor": "#3ba7f0",
         "TriggerDescription": {
           "Rotate": "Adjust level",

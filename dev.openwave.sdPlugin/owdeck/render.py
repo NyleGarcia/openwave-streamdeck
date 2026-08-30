@@ -16,14 +16,73 @@ SIZE = 144
 
 # One accent per meaning, used for the glyph, the bar and the border alike so
 # a key reads at a glance from across a desk rather than needing to be read.
-LIVE = "#3ba7f0"        # a normal, audible level
-MIC_LIVE = "#3ecf8e"    # the microphone that is currently open
-MUTED = "#e5484d"       # muted, on anything
-IDLE = "#6b7280"        # nothing chosen yet, or nothing to show
+#
+# A theme is the whole palette, not a single hue: recolouring only the accent
+# leaves a light theme's text unreadable on a dark ground. Every key is drawn
+# from THEME, which is swapped whole by set_theme().
+THEMES = {
+    "default": {
+        "name": "Default",
+        "live": "#3ba7f0", "mic_live": "#3ecf8e", "muted": "#e5484d",
+        "idle": "#6b7280", "bg": "#17191c", "text": "#eceff2",
+        "dim": "#8b929b", "track": "#2b2f35",
+    },
+    "amber": {
+        "name": "Amber",
+        "live": "#f0a83b", "mic_live": "#ffd166", "muted": "#e5484d",
+        "idle": "#6b6154", "bg": "#1a1713", "text": "#f6eee2",
+        "dim": "#a2957f", "track": "#332b21",
+    },
+    "violet": {
+        "name": "Violet",
+        "live": "#b07cf0", "mic_live": "#6ee7d3", "muted": "#f2568f",
+        "idle": "#6b6480", "bg": "#17141f", "text": "#efeaf7",
+        "dim": "#9a92ad", "track": "#2c2740",
+    },
+    "mono": {
+        "name": "Monochrome",
+        "live": "#e8ecf1", "mic_live": "#ffffff", "muted": "#7a828c",
+        "idle": "#4d545c", "bg": "#141618", "text": "#f2f4f7",
+        "dim": "#828a94", "track": "#2a2e33",
+    },
+    "contrast": {
+        # Deliberately not subtle. Chosen for a deck under stage lighting,
+        # where the default's mid-tones disappear.
+        "name": "High contrast",
+        "live": "#00d4ff", "mic_live": "#00ff88", "muted": "#ff2d55",
+        "idle": "#8a8a8a", "bg": "#000000", "text": "#ffffff",
+        "dim": "#c8c8c8", "track": "#3a3a3a",
+    },
+    "light": {
+        "name": "Light",
+        "live": "#0b74d1", "mic_live": "#0f8f5e", "muted": "#c4262e",
+        "idle": "#8a9199", "bg": "#f4f6f8", "text": "#14181c",
+        "dim": "#5b636b", "track": "#d3d9df",
+    },
+}
 
-BG = "#17191c"
-TEXT = "#eceff2"
-DIM = "#8b929b"
+DEFAULT_THEME = "default"
+THEME = dict(THEMES[DEFAULT_THEME])
+
+
+def set_theme(name):
+    """Swap the palette every key is drawn from. Returns the name in use.
+
+    Module state rather than a parameter threaded through nine functions:
+    drawing happens only on the plugin's event-loop thread, so there is no
+    second caller to race with, and an unknown name falls back rather than
+    leaving keys half-drawn in a palette that does not exist.
+    """
+    global THEME
+    THEME = dict(THEMES.get(name) or THEMES[DEFAULT_THEME])
+    return THEME["name"]
+
+
+def theme_choices():
+    return [{"id": key, "label": value["name"]}
+            for key, value in THEMES.items()]
+
+
 FONT = "Liberation Sans, DejaVu Sans, Helvetica, Arial, sans-serif"
 
 # 24x24 glyph paths, translated and scaled into place by _glyph().
@@ -124,7 +183,7 @@ def _glyph(kind, colour, x, y, scale, muted=False):
         # A slash through the glyph, doubled in the background colour
         # underneath so it reads as a cut rather than as one more stroke of
         # the icon itself.
-        parts.append(f'<path d="M3.6 3.6 20.4 20.4" stroke="{BG}" '
+        parts.append(f'<path d="M3.6 3.6 20.4 20.4" stroke="{THEME["bg"]}" '
                      f'stroke-width="{stroke_width + 2.2}"/>')
         parts.append(f'<path d="M3.6 3.6 20.4 20.4" stroke="{colour}"/>')
     parts.append("</g>")
@@ -137,7 +196,7 @@ def _bar(value, colour, y, muted=False, width=None):
     width = SIZE - 32 if width is None else width
     filled = max(0.0, min(1.0, value)) * width
     track = (f'<rect x="{left}" y="{y}" width="{width}" height="{height}" '
-             f'rx="{height / 2}" fill="#2b2f35"/>')
+             f'rx="{height / 2}" fill="{THEME["track"]}"/>')
     if filled <= 0.5 or muted:
         # A zero-width rounded rect renders as a dot; nothing is clearer.
         return track
@@ -151,7 +210,7 @@ def _document(body, accent):
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{SIZE}" '
         f'height="{SIZE}" viewBox="0 0 {SIZE} {SIZE}">'
-        f'<rect width="{SIZE}" height="{SIZE}" rx="20" fill="{BG}"/>'
+        f'<rect width="{SIZE}" height="{SIZE}" rx="20" fill="{THEME["bg"]}"/>'
         f'<rect x="1.5" y="1.5" width="{SIZE - 3}" height="{SIZE - 3}" '
         f'rx="18.5" fill="none" stroke="{accent}" stroke-width="3" '
         f'stroke-opacity="0.55"/>'
@@ -175,11 +234,11 @@ def level_key(name, percent, muted, kind="speaker", unavailable=False,
     """
     if unavailable:
         return _document(
-            _glyph(kind, IDLE, 50, 28, 1.75)
-            + _text_block(_wrap(name, 13), 108, 19, DIM),
-            IDLE)
+            _glyph(kind, THEME["idle"], 50, 28, 1.75)
+            + _text_block(_wrap(name, 13), 108, 19, THEME["dim"]),
+            THEME["idle"])
 
-    accent = MUTED if muted else LIVE
+    accent = THEME["muted"] if muted else THEME["live"]
     lines = _wrap(name, 12)
     body = (
         _glyph(kind, accent, 11, 11, 1.3, muted=muted)
@@ -188,8 +247,8 @@ def level_key(name, percent, muted, kind="speaker", unavailable=False,
         f'{"MUTED" if muted else f"{percent}%"}</text>'
         + _text_block(lines, (78 if context else 92) if len(lines) > 1
                       else (84 if context else 96),
-                      23 if len(lines) == 1 else 20, TEXT)
-        + (_text_block([_fit(context, 15)], 108, 14, DIM, weight="400")
+                      23 if len(lines) == 1 else 20, THEME["text"])
+        + (_text_block([_fit(context, 15)], 108, 14, THEME["dim"], weight="400")
            if context else "")
     )
     if press in ("up", "down") and step:
@@ -222,23 +281,23 @@ def group_key(group, live_name, member_count, position=0,
     """
     if unavailable:
         return _document(
-            _glyph("mic", IDLE, 50, 24, 1.75, muted=True)
-            + _text_block(_wrap(group, 14), 104, 18, DIM)
-            + _text_block(["OpenWave closed"], 126, 13, DIM, weight="400"),
-            IDLE)
+            _glyph("mic", THEME["idle"], 50, 24, 1.75, muted=True)
+            + _text_block(_wrap(group, 14), 104, 18, THEME["dim"])
+            + _text_block(["OpenWave closed"], 126, 13, THEME["dim"], weight="400"),
+            THEME["idle"])
 
     live = bool(live_name)
-    accent = MIC_LIVE if live else MUTED
+    accent = THEME["mic_live"] if live else THEME["muted"]
     lines = _wrap(live_name or "all muted", 12)
     body = (
         _glyph("mic", accent, 11, 10, 1.3, muted=not live)
-        + f'<text x="{SIZE - 13}" y="34" fill="{DIM}" font-size="16" '
+        + f'<text x="{SIZE - 13}" y="34" fill="{THEME["dim"]}" font-size="16" '
         f'font-family="{FONT}" text-anchor="end">'
         f'{_escape(_fit(group, 9))}</text>'
         + _text_block(lines, 90 if len(lines) > 1 else 94,
-                      23 if len(lines) == 1 else 20, TEXT)
+                      23 if len(lines) == 1 else 20, THEME["text"])
         + _glyph("swap", accent, 14, 104, 1.05)
-        + f'<text x="{SIZE - 15}" y="126" fill="{DIM}" font-size="14" '
+        + f'<text x="{SIZE - 15}" y="126" fill="{THEME["dim"]}" font-size="14" '
         f'font-family="{FONT}" text-anchor="end">'
         f'{max(member_count, 0)} mics</text>'
     )
@@ -248,11 +307,11 @@ def group_key(group, live_name, member_count, position=0,
 def unconfigured_key(headline, hint, kind="speaker"):
     """The key before anything has been chosen for it in the inspector."""
     body = (
-        _glyph(kind, IDLE, 50, 22, 1.75)
-        + _text_block([headline], 100, 20, TEXT)
-        + _text_block([hint], 122, 15, DIM, weight="400")
+        _glyph(kind, THEME["idle"], 50, 22, 1.75)
+        + _text_block([headline], 100, 20, THEME["text"])
+        + _text_block([hint], 122, 15, THEME["dim"], weight="400")
     )
-    return _document(body, IDLE)
+    return _document(body, THEME["idle"])
 
 
 STRIP_W, STRIP_H = 200, 100
@@ -268,7 +327,7 @@ def strip(name, percent, muted, kind="speaker", unavailable=False,
     sidesteps setImage: OpenDeck routes a key image into the layout's icon
     item, which put a whole shrunken key card inside the strip.
     """
-    accent = IDLE if unavailable else (MUTED if muted else LIVE)
+    accent = THEME["idle"] if unavailable else (THEME["muted"] if muted else THEME["live"])
     readout = "--" if unavailable else ("MUTED" if muted else f"{percent}%")
     # Two rows rather than one. The strip is 200 wide, and a name and a large
     # readout on the same line overlap the moment the name is longer than
@@ -283,17 +342,17 @@ def strip(name, percent, muted, kind="speaker", unavailable=False,
     # text that is not measurable here.
     name_y, context_y = (32, 52) if context else (40, None)
     body = (
-        f'<rect width="{STRIP_W}" height="{STRIP_H}" fill="{BG}"/>'
+        f'<rect width="{STRIP_W}" height="{STRIP_H}" fill="{THEME["bg"]}"/>'
         + _glyph(kind, accent, 10, (14 if context else 10), 1.35,
                  muted=muted and not unavailable)
-        + f'<text x="54" y="{name_y}" fill="{TEXT}" font-size="23" '
+        + f'<text x="54" y="{name_y}" fill="{THEME["text"]}" font-size="23" '
         f'font-family="{FONT}" font-weight="600">'
         f'{_escape(_fit(name, 12))}</text>'
-        + (f'<text x="54" y="{context_y}" fill="{DIM}" font-size="15" '
+        + (f'<text x="54" y="{context_y}" fill="{THEME["dim"]}" font-size="15" '
            f'font-family="{FONT}">into {_escape(_fit(context, 14))}</text>'
            if context else "")
         + f'<rect x="{bar_x}" y="{bar_y}" width="{bar_w}" height="{bar_h}" '
-        f'rx="{bar_h / 2}" fill="#2b2f35"/>'
+        f'rx="{bar_h / 2}" fill="{THEME["track"]}"/>'
     )
     if filled > 1.0:
         body += (f'<rect x="{bar_x}" y="{bar_y}" width="{filled:.1f}" '

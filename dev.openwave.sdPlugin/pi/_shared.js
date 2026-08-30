@@ -89,6 +89,14 @@
         payload: { request: "targets", action },
       }));
     },
+    // Plugin-wide, not per key: a deck with one key in Amber and the rest in
+    // Default reads as broken rather than customised.
+    saveGlobal(changes) {
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      socket.send(JSON.stringify({
+        event: "setGlobalSettings", context, payload: changes,
+      }));
+    },
     save(changes) {
       Object.assign(settings, changes);
       if (!socket || socket.readyState !== WebSocket.OPEN) return;

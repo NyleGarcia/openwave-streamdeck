@@ -73,10 +73,17 @@ combinatorial — a name, a level, a mute, and for a group, which of several
 microphones is open — and baking that into static images would need one file
 per combination.
 
-The colour is the state: blue for a normal level, **red for muted** (with the
-glyph struck through), **green for the microphone that currently has the
-floor**. Long names wrap to a second line rather than truncating — "Arctis
-Nov…" identifies nothing.
+The colour is the state: one hue for a normal level, **another for muted**
+(with the glyph struck through), **a third for the microphone that currently
+has the floor**. Long names wrap to a second line rather than truncating —
+"Arctis Nov…" identifies nothing.
+
+Six palettes ship — Default, Amber, Violet, Monochrome, High contrast and
+Light — chosen from any of the property inspectors. A theme is the whole
+palette, not an accent: recolouring one hue would leave Light unreadable,
+white text on a white ground. It applies plugin-wide rather than per key,
+because one key in Amber among five in Default reads as broken rather than
+customised.
 
 Encoders use **`layouts/strip.json`**, a layout of our own holding exactly one
 pixmap item across the whole 200×100 strip, so it is drawn the same way a key

@@ -33,6 +33,11 @@
     <select id="step"></select>
   </div>
   <p class="hint" id="hint">Rotate to adjust, press to mute.</p>
+  <div style="margin-top:16px;border-top:1px solid #343a42;padding-top:14px">
+    <label for="theme">Colours <span style="font-weight:400;color:#8b929b">
+      — applies to every key</span></label>
+    <select id="theme"></select>
+  </div>
   <p class="warn" id="warn" hidden></p>
 
 <script>
@@ -51,6 +56,7 @@ OpenWave.onPayload((payload) => {
       "Rotate to adjust, press to mute. " + payload.hint;
   }
   renderBehaviour(payload);
+  renderTheme(payload);
   // Two dropdowns when the thing being chosen is genuinely two choices: a
   // source and the mix it sits in. One combined list is every pairing, which
   // grows as sources x mixes and is long before it is useful.
@@ -63,6 +69,18 @@ OpenWave.onPayload((payload) => {
   targets = payload.targets || [];
   render(payload);
 });
+
+function renderTheme(payload) {
+  const node = document.getElementById("theme");
+  if (!payload.themes) return;
+  if (!node.options.length) {
+    for (const theme of payload.themes) {
+      node.appendChild(new Option(theme.label, theme.id));
+    }
+  }
+  node.value = payload.theme || "default";
+  node.onchange = () => OpenWave.saveGlobal({ theme: node.value });
+}
 
 function renderBehaviour(payload) {
   // A dial rotates and presses; a key only presses, so on a key the press is

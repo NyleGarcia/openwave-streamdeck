@@ -16,6 +16,11 @@
     left alone.
   </p>
   <p class="warn" id="warn" hidden></p>
+  <div style="margin-top:16px;border-top:1px solid #343a42;padding-top:14px">
+    <label for="theme">Colours <span style="font-weight:400;color:#8b929b">
+      — applies to every key</span></label>
+    <select id="theme"></select>
+  </div>
 
 <script>
 const select = document.getElementById("group");
@@ -23,6 +28,14 @@ const warn = document.getElementById("warn");
 
 OpenWave.onPayload((payload) => {
   if (!payload) return;
+  const node = document.getElementById("theme");
+  if (payload.themes && !node.options.length) {
+    for (const theme of payload.themes) {
+      node.appendChild(new Option(theme.label, theme.id));
+    }
+    node.onchange = () => OpenWave.saveGlobal({ theme: node.value });
+  }
+  if (payload.theme) node.value = payload.theme;
   render(payload);
 });
 

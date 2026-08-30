@@ -154,6 +154,10 @@ class Plugin:
         self._uuid = uuid
         self._ws.send_json({"event": register_event, "uuid": uuid})
         log.info("registered as %s on port %s", uuid, port)
+        # The theme is plugin-wide, not per key: a deck with one key in Amber
+        # and the rest in Default looks broken rather than customised. Asked
+        # for at startup because global settings are not pushed unprompted.
+        self._ws.send_json({"event": "getGlobalSettings", "context": uuid})
         # context -> settings, for every visible instance of our actions
         self._contexts = {}
         # context -> the last payload drawn, so a tick that changes nothing
@@ -163,6 +167,7 @@ class Plugin:
         self._last_refresh = 0.0
         self._snapshot = None
         self._snapshot_at = 0.0
+        self._theme = render.DEFAULT_THEME
 
     # ------------------------------------------------------------ outbound
     def _send(self, event, context, payload=None):
@@ -431,6 +436,8 @@ class Plugin:
             return {
                 "openwave": data is not None,
                 "groups": list((data or {}).get("groups") or []),
+                "themes": render.theme_choices(),
+                "theme": self._theme,
             }
         kinds = VOLUME_KINDS.get(action, VOLUME_KINDS[VOLUME])
         chosen = "%s:%s" % parse_target(settings or {}) \
@@ -488,6 +495,8 @@ class Plugin:
                 "hint": HINTS.get(action, ""),
                 "press": press_action(settings or {}),
                 "step": step_percent(settings or {}),
+                "themes": render.theme_choices(),
+                "theme": self._theme,
             }
 
         if chosen and chosen not in {t["value"] for t in targets}:
@@ -507,7 +516,9 @@ class Plugin:
                 # asymmetry waiting to disagree.
                 "chosen": chosen,
                 "press": press_action(settings or {}),
-                "step": step_percent(settings or {})}
+                "step": step_percent(settings or {}),
+                "themes": render.theme_choices(),
+                "theme": self._theme}
 
     # ------------------------------------------------------------- inbound
     def _handle(self, message):
@@ -528,6 +539,16 @@ class Plugin:
                 self._send("setFeedbackLayout", context,
                            {"layout": ENCODER_LAYOUT})
             self._render(context)
+        elif event == "didReceiveGlobalSettings":
+            name = (payload.get("settings") or {}).get("theme")
+            self._theme = name if name in render.THEMES \
+                else render.DEFAULT_THEME
+            render.set_theme(self._theme)
+            # Every cached image was drawn in the old palette, so the cache
+            # has to go: otherwise a theme change would show only on the keys
+            # that happened to change for some other reason.
+            self._drawn.clear()
+            self._render_all()
         elif event == "willDisappear":
             self._contexts.pop(context, None)
             self._drawn.pop(context, None)

@@ -102,6 +102,8 @@ class PluginCase(unittest.TestCase):
         self.plugin._last_refresh = 0.0
         self.plugin._snapshot = None
         self.plugin._snapshot_at = 0.0
+        self.plugin._theme = render.DEFAULT_THEME
+        render.set_theme(render.DEFAULT_THEME)
 
     def tearDown(self):
         for module, name, original in reversed(self._patched):
@@ -753,6 +755,97 @@ class TestInspectorPayload(PluginCase):
         self.assertTrue(payload["openwave"])
 
 
+class TestTheming(PluginCase):
+    def tearDown(self):
+        render.set_theme(render.DEFAULT_THEME)
+        super().tearDown()
+
+    def _global(self, theme):
+        self.plugin._handle({
+            "event": "didReceiveGlobalSettings", "context": None,
+            "payload": {"settings": {"theme": theme}},
+        })
+
+    def test_a_theme_change_repaints_every_key(self):
+        """Cached images were drawn in the old palette, so a change that did
+        not clear the cache would land only on keys that happened to move."""
+        self.place("a", P.VOLUME, {"target": "mix:personal"})
+        self.place("b", P.VOLUME, {"target": "mix:chat"})
+        self._global("contrast")
+        painted = {m["context"] for m in self.events("setImage")}
+        self.assertEqual(painted, {"a", "b"})
+
+    def test_the_palette_actually_changes(self):
+        import base64
+        self.place("a", P.VOLUME, {"target": "mix:personal"})
+        self._global("light")
+        uri = self.events("setImage")[0]["payload"]["image"]
+        svg = base64.b64decode(uri.split(",", 1)[1]).decode()
+        self.assertIn(render.THEMES["light"]["bg"], svg)
+        self.assertNotIn(render.THEMES["default"]["live"], svg)
+
+    def test_an_unknown_theme_falls_back(self):
+        self._global("chartreuse")
+        self.assertEqual(self.plugin._theme, render.DEFAULT_THEME)
+
+    def test_a_missing_theme_falls_back(self):
+        self.plugin._handle({
+            "event": "didReceiveGlobalSettings", "context": None,
+            "payload": {"settings": {}},
+        })
+        self.assertEqual(self.plugin._theme, render.DEFAULT_THEME)
+
+    def test_every_inspector_can_change_it(self):
+        """Whichever key you happen to open, the setting is reachable."""
+        for action in (P.VOLUME, P.SOURCE_LEVEL, P.SEND_LEVEL, P.MIC_GROUP):
+            payload = self.plugin._inspector_payload(action)
+            self.assertTrue(payload["themes"], action)
+            self.assertEqual(payload["theme"], render.DEFAULT_THEME, action)
+
+
+class TestThemeDefinitions(unittest.TestCase):
+    def tearDown(self):
+        render.set_theme(render.DEFAULT_THEME)
+
+    def test_every_theme_defines_every_colour(self):
+        """A theme missing a key would raise mid-draw, on a key already on a
+        deck, with the plugin unable to report it."""
+        expected = set(render.THEMES[render.DEFAULT_THEME])
+        for name, theme in render.THEMES.items():
+            self.assertEqual(set(theme), expected, name)
+
+    def test_every_theme_renders_every_key(self):
+        import xml.etree.ElementTree as ET
+        for name in render.THEMES:
+            render.set_theme(name)
+            for svg in (
+                render.level_key("Music", 55, False, context="Chat Mix"),
+                render.level_key("Dock", 0, True, "mic"),
+                render.level_key("Gone", 0, False, unavailable=True),
+                render.group_key("Mic", "Dock", 2, 1),
+                render.unconfigured_key("Pick a mix", "in settings"),
+                render.strip("Music", 55, False, context="Chat Mix"),
+            ):
+                ET.fromstring(svg)
+
+    def test_an_unknown_name_falls_back_rather_than_half_drawing(self):
+        self.assertEqual(render.set_theme("nonsense"),
+                         render.THEMES[render.DEFAULT_THEME]["name"])
+
+    def test_the_light_theme_is_actually_light(self):
+        """It exists to be readable on a bright desk; a copy of the dark one
+        with a different accent would not be."""
+        light, default = render.THEMES["light"], render.THEMES["default"]
+        self.assertGreater(_luminance(light["bg"]), 0.5)
+        self.assertLess(_luminance(light["text"]), 0.5)
+        self.assertLess(_luminance(default["bg"]), 0.5)
+
+
+def _luminance(colour):
+    r, g, b = (int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
 class TestRendering(unittest.TestCase):
     def test_keys_are_well_formed_svg(self):
         import xml.etree.ElementTree as ET
@@ -771,12 +864,17 @@ class TestRendering(unittest.TestCase):
             ET.fromstring(svg)
 
     def test_muting_recolours_the_key(self):
-        self.assertIn(render.MUTED, render.level_key("A", 50, True))
-        self.assertNotIn(render.MUTED, render.level_key("A", 50, False))
+        muted = render.THEME["muted"]
+        self.assertIn(muted, render.level_key("A", 50, True))
+        self.assertNotIn(muted, render.level_key("A", 50, False))
 
-    def test_a_live_microphone_group_is_green(self):
-        self.assertIn(render.MIC_LIVE, render.group_key("Mic", "Dock", 2, 1))
-        self.assertIn(render.MUTED, render.group_key("Mic", "", 2))
+    def test_a_live_microphone_group_is_its_own_colour(self):
+        """Distinct from a level, because "this mic has the floor" is not the
+        same fact as "this is turned up"."""
+        self.assertIn(render.THEME["mic_live"],
+                      render.group_key("Mic", "Dock", 2, 1))
+        self.assertIn(render.THEME["muted"], render.group_key("Mic", "", 2))
+        self.assertNotEqual(render.THEME["mic_live"], render.THEME["live"])
 
     def test_a_send_shows_the_mix_under_the_source(self):
         """Joined on one line, "Music -> Chat Mix" truncates to "Music -> Ch…"

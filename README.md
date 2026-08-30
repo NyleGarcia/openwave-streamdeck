@@ -5,25 +5,32 @@ An [OpenDeck](https://github.com/nekename/OpenDeck) plugin for controlling
 
 ## Actions
 
-| Action | Controllers | Needs OpenWave running? |
+| Action | Controls | Needs OpenWave running? |
 |---|---|---|
-| **Volume** | key, dial | only for microphones and sources |
-| **Mic Group** | key | yes |
+| **Mix Volume** | a mix's master | no |
+| **Source Volume** | a source's trim, in every mix at once | yes |
+| **Mix Send** | one matrix cell: a source *into one mix* | yes |
+| **Mic Group** | which microphone in a group has the floor | yes |
 
-**Volume** controls one thing's level. Rotate a dial to adjust, press to mute;
-a key presses to mute too. Four kinds of target, listed together because from a
-dial's point of view they are the same job:
+All four work on a key or a dial except Mic Group, which is a key.
 
-| Target | Is |
-|---|---|
-| **Mix** | a mix's master — a PipeWire sink |
-| **Microphone** / **Source** | a row trim, applying in every mix at once |
-| **Send** | one matrix cell: how much of one source a *single* mix receives |
+Rotate a dial to adjust, press to mute; a key presses to mute too.
 
-Underneath they are not the same. A mix master is a PipeWire sink, so it works
-whether OpenWave is open or not. A trim and a send both live inside OpenWave —
-the send is the cell in the matrix, applied per mix; the trim sits ahead of all
-of them — so those need OpenWave running.
+One action per kind rather than one action with every target in a single list.
+With three mixes and seven sources that list is **31 entries**, 21 of them
+sends — long enough that finding a mix master at the top is work. Split, each
+list is short, and OpenDeck's own action list says what a button does before
+it is placed.
+
+They are also genuinely different things. A mix master is a PipeWire sink, so
+it works whether OpenWave is open or not. A trim and a send both live inside
+OpenWave: the send is one cell of the matrix, the trim sits ahead of all of
+them. Sharing one control would imply they are interchangeable.
+
+A key placed before the split keeps whatever it holds. Its action still drives
+any kind, and a target its list would no longer offer is shown under
+**Currently set** rather than vanishing, which would read as the key having
+lost its setting.
 
 Sends are listed grouped by the mix they feed, because that is how the matrix
 reads: a column is a mix, and the rows under it are what feeds it. On the key

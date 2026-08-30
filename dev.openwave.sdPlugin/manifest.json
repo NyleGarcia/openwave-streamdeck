@@ -19,10 +19,10 @@
   ],
   "Actions": [
     {
-      "Name": "Volume",
+      "Name": "Mix Volume",
       "UUID": "dev.openwave.mixlevel",
       "Icon": "icons/mixlevel",
-      "Tooltip": "Volume of an OpenWave mix, microphone or source. Press to mute.",
+      "Tooltip": "Master volume of one OpenWave mix. Press to mute.",
       "Controllers": [
         "Keypad",
         "Encoder"
@@ -31,6 +31,60 @@
       "States": [
         {
           "Image": "icons/mixlevel",
+          "Title": ""
+        }
+      ],
+      "Encoder": {
+        "layout": "layouts/strip.json",
+        "StackColor": "#3ba7f0",
+        "TriggerDescription": {
+          "Rotate": "Adjust level",
+          "Push": "Mute",
+          "Touch": "Mute"
+        }
+      },
+      "PropertyInspectorPath": "pi/mixlevel.html"
+    },
+    {
+      "Name": "Source Volume",
+      "UUID": "dev.openwave.sourcelevel",
+      "Icon": "icons/sourcelevel",
+      "Tooltip": "Trim of one microphone or source, in every mix at once. Press to mute.",
+      "Controllers": [
+        "Keypad",
+        "Encoder"
+      ],
+      "SupportedInMultiActions": false,
+      "States": [
+        {
+          "Image": "icons/sourcelevel",
+          "Title": ""
+        }
+      ],
+      "Encoder": {
+        "layout": "layouts/strip.json",
+        "StackColor": "#3ba7f0",
+        "TriggerDescription": {
+          "Rotate": "Adjust level",
+          "Push": "Mute",
+          "Touch": "Mute"
+        }
+      },
+      "PropertyInspectorPath": "pi/mixlevel.html"
+    },
+    {
+      "Name": "Mix Send",
+      "UUID": "dev.openwave.sendlevel",
+      "Icon": "icons/sendlevel",
+      "Tooltip": "How much of one source a single mix receives. Press to mute.",
+      "Controllers": [
+        "Keypad",
+        "Encoder"
+      ],
+      "SupportedInMultiActions": false,
+      "States": [
+        {
+          "Image": "icons/sendlevel",
           "Title": ""
         }
       ],

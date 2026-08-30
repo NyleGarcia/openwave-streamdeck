@@ -37,7 +37,36 @@ logging.basicConfig(
 log = logging.getLogger("openwave-deck")
 
 VOLUME = "dev.openwave.mixlevel"
+SOURCE_LEVEL = "dev.openwave.sourcelevel"
+SEND_LEVEL = "dev.openwave.sendlevel"
 MIC_GROUP = "dev.openwave.micgroup"
+
+# One action per kind of thing, rather than one action with every target in a
+# single list. With three mixes and seven sources that list is 31 entries, of
+# which 21 are sends -- long enough that finding the mix master at the top is
+# work. Split, each action's list is short and the deck's own action list says
+# what a button does before it is placed.
+VOLUME_KINDS = {
+    VOLUME: ("mix",),
+    SOURCE_LEVEL: ("src",),
+    SEND_LEVEL: ("cell",),
+}
+PROMPTS = {
+    VOLUME: ("Pick a mix", "in settings"),
+    SOURCE_LEVEL: ("Pick a source", "in settings"),
+    SEND_LEVEL: ("Pick a send", "in settings"),
+}
+HINTS = {
+    VOLUME: "A mix's master. It moves everything routed into the mix and "
+            "everything capturing from it at once, and works whether "
+            "OpenWave is running or not.",
+    SOURCE_LEVEL: "A source's trim, applied ahead of the per-mix faders, so "
+                  "it moves that source in every mix at once. Needs OpenWave "
+                  "running.",
+    SEND_LEVEL: "One cell of the matrix: how much of a source a single mix "
+                "receives. Everywhere else is untouched. Needs OpenWave "
+                "running.",
+}
 
 # How far one dial detent moves a level. Small enough to land on a value,
 # large enough to cross the range without a long spin.
@@ -234,20 +263,22 @@ class Plugin:
     def _render(self, context):
         """Draw one instance from live audio state."""
         settings = self._contexts.get(context) or {}
-        if settings.get("action") == MIC_GROUP:
+        action = settings.get("action", VOLUME)
+        if action == MIC_GROUP:
             self._render_group(context, settings)
             return
 
         encoder = settings.get("controller") == "Encoder"
         state = self._read(settings)
         if state is None:
+            headline, hint = PROMPTS.get(action, PROMPTS[VOLUME])
             self._paint(context, render.unconfigured_key(
-                "Pick a mix", "or a source"))
+                headline, hint,
+                kind="mic" if action == SOURCE_LEVEL else "speaker"))
             if encoder:
                 self._paint_strip(context, {
-                    "name": "Pick a mix or source", "percent": 0,
-                    "muted": False, "glyph": "speaker", "ok": False,
-                    "context": ""})
+                    "name": headline, "percent": 0, "muted": False,
+                    "glyph": "speaker", "ok": False, "context": ""})
             return
         # An encoder gets both. The strip is what the hardware shows, but
         # OpenDeck's editor draws a dial from its key image and title, so an
@@ -347,47 +378,74 @@ class Plugin:
         self._render(context)
 
     # ------------------------------------------------- property inspector
-    def _inspector_payload(self, action):
+    def _inspector_payload(self, action, settings=None):
+        """What this action's inspector should offer.
+
+        Filtered to the action's own kind. A target already chosen is kept in
+        the list whatever its kind: a key placed before the split may hold one
+        this action would not otherwise offer, and dropping it silently from
+        the list would look like the key had lost its setting.
+        """
         if action == MIC_GROUP:
             data = self._openwave(force=True)
             return {
                 "openwave": data is not None,
                 "groups": list((data or {}).get("groups") or []),
             }
+        kinds = VOLUME_KINDS.get(action, VOLUME_KINDS[VOLUME])
+        chosen = "%s:%s" % parse_target(settings or {}) \
+            if parse_target(settings or {})[0] else ""
         default = graph.default_sink()
         data = self._openwave(force=True)
-        targets = [
-            {
-                "value": f"mix:{mix_id}",
-                "label": label,
-                "group": "Mixes",
-                # The monitoring mix is normally the system default sink, so
-                # its master is the machine's volume. The inspector says so
-                # rather than letting someone find out by muting everything.
-                "isDefault": sink == default,
-            }
-            for mix_id, label, sink in owstate.mix_choices()
-        ]
-        for source in (data or {}).get("sources") or []:
-            targets.append({
-                "value": f"src:{source.get('id')}",
-                "label": source.get("name", source.get("id", "")),
-                "group": ("Microphones" if source.get("kind") == "device"
-                          else "Sources"),
-                "isDefault": False,
-            })
-        # Sends last and grouped by mix, so the list reads the way the matrix
-        # does: a column is a mix, and the rows under it are what feeds it.
-        for mix in (data or {}).get("mixes") or []:
-            mix_id, mix_name = mix.get("id"), mix.get("name", mix.get("id"))
+        targets = []
+
+        if "mix" in kinds:
+            targets += [
+                {
+                    "value": f"mix:{mix_id}",
+                    "label": label,
+                    "group": "Mixes",
+                    # The monitoring mix is normally the system default sink,
+                    # so its master is the machine's volume. The inspector
+                    # says so rather than letting someone find out by muting
+                    # everything.
+                    "isDefault": sink == default,
+                }
+                for mix_id, label, sink in owstate.mix_choices()
+            ]
+        if "src" in kinds:
             for source in (data or {}).get("sources") or []:
                 targets.append({
-                    "value": f"cell:{source.get('id')}:{mix_id}",
-                    "label": f"{source.get('name')} into {mix_name}",
-                    "group": f"Sends into {mix_name}",
+                    "value": f"src:{source.get('id')}",
+                    "label": source.get("name", source.get("id", "")),
+                    "group": ("Microphones" if source.get("kind") == "device"
+                              else "Sources"),
                     "isDefault": False,
                 })
-        return {"targets": targets, "openwave": data is not None}
+        if "cell" in kinds:
+            # Grouped by the mix they feed, because that is how the matrix
+            # reads: a column is a mix, and the rows under it feed it.
+            for mix in (data or {}).get("mixes") or []:
+                mix_id = mix.get("id")
+                mix_name = mix.get("name", mix_id)
+                for source in (data or {}).get("sources") or []:
+                    targets.append({
+                        "value": f"cell:{source.get('id')}:{mix_id}",
+                        "label": f"{source.get('name')} into {mix_name}",
+                        "group": f"Sends into {mix_name}",
+                        "isDefault": False,
+                    })
+
+        if chosen and chosen not in {t["value"] for t in targets}:
+            state = self._read(settings or {})
+            label = (state or {}).get("name") or chosen
+            if (state or {}).get("context"):
+                label = f"{label} into {state['context']}"
+            targets.insert(0, {"value": chosen, "label": label,
+                               "group": "Currently set", "isDefault": False})
+
+        return {"targets": targets, "openwave": data is not None,
+                "hint": HINTS.get(action, "")}
 
     # ------------------------------------------------------------- inbound
     def _handle(self, message):
@@ -429,11 +487,11 @@ class Plugin:
             # event fires exactly when the panel is on screen, so answering
             # it unprompted makes the lists correct at the only moment they
             # are being read.
+            settings = self._contexts.get(context) or {}
             self._send("sendToPropertyInspector", context,
                        self._inspector_payload(
                            message.get("action")
-                           or (self._contexts.get(context) or {}).get("action")
-                           or VOLUME))
+                           or settings.get("action") or VOLUME, settings))
         elif event == "sendToPlugin":
             if payload.get("debug"):
                 log.info("PI[%s] %s", context, payload["debug"])
@@ -445,7 +503,8 @@ class Plugin:
                       or (self._contexts.get(context) or {}).get("action")
                       or VOLUME)
             self._send("sendToPropertyInspector", context,
-                       self._inspector_payload(action))
+                       self._inspector_payload(
+                           action, self._contexts.get(context) or {}))
 
     # ---------------------------------------------------------------- loop
     def run(self):

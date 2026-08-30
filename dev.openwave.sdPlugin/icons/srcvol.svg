@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
+  <!-- A microphone over a level: a source trim, applying everywhere. -->
+  <rect x="58" y="16" width="28" height="52" rx="14" fill="#b07cf0"/>
+  <g stroke="#b07cf0" stroke-width="11" stroke-linecap="round" fill="none">
+    <path d="M42 62a30 30 0 0 0 60 0"/>
+    <path d="M72 92v14"/>
+  </g>
+  <rect x="24" y="120" width="96" height="12" rx="6" fill="#333c47"/>
+  <rect x="24" y="120" width="70" height="12" rx="6" fill="#b07cf0"/>
+</svg>

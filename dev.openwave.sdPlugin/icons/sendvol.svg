@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
+  <!-- One row feeding one column: an arrow into a mix, which is a cell. -->
+  <rect x="14" y="52" width="34" height="34" rx="9" fill="#f0a83b"/>
+  <g stroke="#f0a83b" stroke-width="11" stroke-linecap="round"
+     stroke-linejoin="round" fill="none">
+    <path d="M58 69h34"/><path d="M80 55l14 14-14 14"/>
+  </g>
+  <rect x="106" y="24" width="26" height="96" rx="13" fill="#333c47"/>
+  <rect x="106" y="66" width="26" height="54" rx="13" fill="#f0a83b"/>
+</svg>

@@ -375,6 +375,42 @@ class TestPressing(PluginCase):
         self.assertTrue(self.events("showAlert"))
 
 
+class TestTheSplitActionsShareBehaviour(PluginCase):
+    """Only the offered list differs; driving a target is the same code."""
+
+    def test_a_source_key_on_the_source_action_still_mutes(self):
+        self.place("c", P.SOURCE_LEVEL, {"target": "src:music"})
+        self.press("c")
+        self.assertIn(("src-mute", "music"), self.calls)
+
+    def test_a_send_key_on_the_send_action_still_rotates(self):
+        self.place("c", P.SEND_LEVEL, {"target": "cell:dock:chat"})
+        self.plugin._handle({"event": "dialRotate", "context": "c",
+                             "payload": {"ticks": 5}})
+        self.assertIn(("cell-level", "dock", "chat", 0.78), self.calls)
+
+    def test_an_old_key_holding_another_kind_still_works(self):
+        """The UUID that used to hold every kind keeps driving what it has."""
+        self.place("c", P.VOLUME, {"target": "src:music"})
+        self.press("c")
+        self.assertIn(("src-mute", "music"), self.calls)
+
+    def test_each_action_prompts_for_its_own_kind(self):
+        import base64
+        seen = {}
+        for action in (P.VOLUME, P.SOURCE_LEVEL, P.SEND_LEVEL):
+            self.plugin._handle({
+                "event": "willAppear", "context": action, "action": action,
+                "payload": {"controller": "Keypad", "settings": {}},
+            })
+            uri = [m for m in self.ws.sent if m["event"] == "setImage"
+                   and m["context"] == action][0]["payload"]["image"]
+            seen[action] = base64.b64decode(uri.split(",", 1)[1]).decode()
+        self.assertIn("Pick a mix", seen[P.VOLUME])
+        self.assertIn("Pick a source", seen[P.SOURCE_LEVEL])
+        self.assertIn("Pick a send", seen[P.SEND_LEVEL])
+
+
 class TestGroupState(PluginCase):
     def test_reports_the_live_microphone_and_its_position(self):
         self.assertEqual(self.plugin._group_state("Mic"), ("XLR Dock", 2, 1))
@@ -504,25 +540,87 @@ class TestDrawing(PluginCase):
 
 
 class TestInspectorPayload(PluginCase):
-    def test_mixes_and_sources_are_offered_together(self):
-        payload = self.plugin._inspector_payload(P.VOLUME)
-        values = [t["value"] for t in payload["targets"]]
+    """Each action offers only its own kind, so no list is 31 entries long."""
+
+    def values(self, action, settings=None):
+        return [t["value"]
+                for t in self.plugin._inspector_payload(action, settings)
+                ["targets"]]
+
+    def test_mix_volume_offers_only_mixes(self):
+        values = self.values(P.VOLUME)
         self.assertIn("mix:personal", values)
+        self.assertFalse([v for v in values if v.startswith(("src:", "cell:"))])
+
+    def test_source_volume_offers_only_sources(self):
+        values = self.values(P.SOURCE_LEVEL)
         self.assertIn("src:dock", values)
         self.assertIn("src:music", values)
+        self.assertFalse([v for v in values if v.startswith(("mix:", "cell:"))])
+
+    def test_mix_send_offers_only_sends(self):
+        values = self.values(P.SEND_LEVEL)
+        for source in ("dock", "arctis", "music"):
+            for mix in ("personal", "chat"):
+                self.assertIn(f"cell:{source}:{mix}", values)
+        self.assertFalse([v for v in values if v.startswith(("mix:", "src:"))])
 
     def test_microphones_are_separated_from_application_sources(self):
-        payload = self.plugin._inspector_payload(P.VOLUME)
+        payload = self.plugin._inspector_payload(P.SOURCE_LEVEL)
         groups = {t["value"]: t["group"] for t in payload["targets"]}
         self.assertEqual(groups["src:dock"], "Microphones")
         self.assertEqual(groups["src:music"], "Sources")
-        self.assertEqual(groups["mix:chat"], "Mixes")
+
+    def test_sends_are_grouped_by_the_mix_they_feed(self):
+        """The matrix reads by column, and so should the list."""
+        payload = self.plugin._inspector_payload(P.SEND_LEVEL)
+        groups = {t["value"]: t["group"] for t in payload["targets"]}
+        self.assertEqual(groups["cell:music:chat"], "Sends into Chat Mix")
+        self.assertEqual(groups["cell:music:personal"],
+                         "Sends into Personal Mix")
+
+    def test_a_send_is_labelled_unambiguously(self):
+        sends = self.plugin._inspector_payload(P.SEND_LEVEL)["targets"]
+        labels = {t["value"]: t["label"] for t in sends}
+        self.assertEqual(labels["cell:music:chat"], "Music into Chat Mix")
+        trims = self.plugin._inspector_payload(P.SOURCE_LEVEL)["targets"]
+        # The trim and the send must not read the same, or the two actions
+        # look interchangeable when they are not.
+        self.assertEqual({t["value"]: t["label"] for t in trims}["src:music"],
+                         "Music")
 
     def test_the_system_output_is_flagged(self):
         """Muting it silences the machine, not just OpenWave."""
         payload = self.plugin._inspector_payload(P.VOLUME)
         flagged = [t["value"] for t in payload["targets"] if t["isDefault"]]
         self.assertEqual(flagged, ["mix:personal"])
+
+    def test_a_target_from_before_the_split_is_kept(self):
+        """A key placed when one action held every kind may carry a target
+        this one would not offer. Dropping it from the list silently would
+        read as the key having lost its setting."""
+        settings = {"target": "src:music"}
+        payload = self.plugin._inspector_payload(P.VOLUME, settings)
+        kept = [t for t in payload["targets"] if t["value"] == "src:music"]
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(kept[0]["group"], "Currently set")
+        self.assertEqual(kept[0]["label"], "Music")
+
+    def test_a_kept_send_says_where_it_goes(self):
+        payload = self.plugin._inspector_payload(
+            P.VOLUME, {"target": "cell:music:chat"})
+        kept = next(t for t in payload["targets"]
+                    if t["value"] == "cell:music:chat")
+        self.assertEqual(kept["label"], "Music into Chat Mix")
+
+    def test_a_target_of_the_right_kind_is_not_duplicated(self):
+        values = self.values(P.VOLUME, {"target": "mix:chat"})
+        self.assertEqual(values.count("mix:chat"), 1)
+
+    def test_each_action_explains_itself(self):
+        for action in (P.VOLUME, P.SOURCE_LEVEL, P.SEND_LEVEL):
+            self.assertTrue(
+                self.plugin._inspector_payload(action)["hint"], action)
 
     def test_mixes_are_still_offered_with_openwave_closed(self):
         self.snapshot = None
@@ -531,39 +629,13 @@ class TestInspectorPayload(PluginCase):
         self.assertFalse(payload["openwave"])
         self.assertTrue([t for t in payload["targets"]
                          if t["value"].startswith("mix:")])
-        self.assertFalse([t for t in payload["targets"]
-                          if t["value"].startswith("src:")])
 
-    def test_every_send_is_offered(self):
-        payload = self.plugin._inspector_payload(P.VOLUME)
-        values = {t["value"] for t in payload["targets"]}
-        # three sources x two mixes, on top of the masters and the trims
-        for source in ("dock", "arctis", "music"):
-            for mix in ("personal", "chat"):
-                self.assertIn(f"cell:{source}:{mix}", values)
-
-    def test_sends_are_grouped_by_the_mix_they_feed(self):
-        """The matrix reads by column, and so should the list."""
-        payload = self.plugin._inspector_payload(P.VOLUME)
-        groups = {t["value"]: t["group"] for t in payload["targets"]}
-        self.assertEqual(groups["cell:music:chat"], "Sends into Chat Mix")
-        self.assertEqual(groups["cell:music:personal"],
-                         "Sends into Personal Mix")
-
-    def test_a_send_is_labelled_unambiguously(self):
-        payload = self.plugin._inspector_payload(P.VOLUME)
-        labels = {t["value"]: t["label"] for t in payload["targets"]}
-        self.assertEqual(labels["cell:music:chat"], "Music into Chat Mix")
-        # The trim and the master must not read the same as the send.
-        self.assertEqual(labels["src:music"], "Music")
-        self.assertEqual(labels["mix:chat"], "Chat Mix")
-
-    def test_no_sends_are_offered_with_openwave_closed(self):
+    def test_no_sources_or_sends_are_offered_with_openwave_closed(self):
         self.snapshot = None
         self.plugin._snapshot_at = 0.0
-        payload = self.plugin._inspector_payload(P.VOLUME)
-        self.assertFalse([t for t in payload["targets"]
-                          if t["value"].startswith("cell:")])
+        for action in (P.SOURCE_LEVEL, P.SEND_LEVEL):
+            self.assertEqual(
+                self.plugin._inspector_payload(action)["targets"], [], action)
 
     def test_group_inspector(self):
         payload = self.plugin._inspector_payload(P.MIC_GROUP)

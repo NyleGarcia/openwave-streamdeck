@@ -4,18 +4,17 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>OpenWave — Volume</title>
+<!-- Serves Mix Volume, Source Volume and Mix Send: the page renders whatever
+     list the plugin sends, and the plugin decides which kind that is. The
+     filename is historical -- placed actions store this path in the profile,
+     so renaming it would strand keys already on a deck. -->
 <link rel="stylesheet" href="_shared.css" />
 <script src="_shared.js"></script>
 </head>
 <body>
   <label for="target">Control</label>
   <select id="target"><option value="">Loading…</option></select>
-  <p class="hint">
-    Rotate or press to adjust, press to mute. A mix is mastered at its own
-    sink, so it moves everything routed into it and everything capturing from
-    it at once. A microphone or source is trimmed inside OpenWave, ahead of
-    the per-mix faders.
-  </p>
+  <p class="hint" id="hint">Rotate to adjust, press to mute.</p>
   <p class="warn" id="warn" hidden></p>
 
 <script>
@@ -26,6 +25,10 @@ let targets = [];
 OpenWave.onPayload((payload) => {
   if (!payload) return;
   targets = payload.targets || [];
+  if (payload.hint) {
+    document.getElementById("hint").textContent =
+      "Rotate to adjust, press to mute. " + payload.hint;
+  }
   render(payload);
 });
 
@@ -37,8 +40,9 @@ function render(payload) {
 
   if (targets.length === 0) {
     select.innerHTML = '<option value="">Nothing to control</option>';
-    warn.textContent = "OpenWave has no mixes configured, or its "
-      + "configuration could not be read.";
+    warn.textContent = payload.openwave
+      ? "OpenWave has nothing of this kind configured yet."
+      : "OpenWave is not running, and this action needs it.";
     warn.hidden = false;
     return;
   }
@@ -71,8 +75,8 @@ function render(payload) {
     + `visible=${!!select.offsetParent}`);
 
   if (!payload.openwave) {
-    warn.textContent = "OpenWave is not running, so only mixes are listed. "
-      + "Start it to control microphones and sources too.";
+    warn.textContent = "OpenWave is not running, so only mixes can be "
+      + "listed. Start it to choose a source or a send.";
     warn.hidden = false;
   } else {
     showDefaultWarning(chosen);

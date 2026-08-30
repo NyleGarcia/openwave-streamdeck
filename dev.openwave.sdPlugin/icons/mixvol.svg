@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
+  <!-- Headphones over a level: a mix master is what you hear. -->
+  <g stroke="#3ba7f0" stroke-width="11" stroke-linecap="round" fill="none">
+    <path d="M34 78V62a38 38 0 0 1 76 0v16"/>
+  </g>
+  <g fill="#3ba7f0">
+    <rect x="24" y="72" width="22" height="34" rx="11"/>
+    <rect x="98" y="72" width="22" height="34" rx="11"/>
+  </g>
+  <rect x="24" y="120" width="96" height="12" rx="6" fill="#333c47"/>
+  <rect x="24" y="120" width="62" height="12" rx="6" fill="#3ba7f0"/>
+</svg>

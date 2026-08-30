@@ -12,25 +12,96 @@
 <script src="_shared.js"></script>
 </head>
 <body>
-  <label for="target">Control</label>
-  <select id="target"><option value="">Loading…</option></select>
+  <div id="single">
+    <label for="target">Control</label>
+    <select id="target"><option value="">Loading…</option></select>
+  </div>
+  <div id="pair" hidden>
+    <label for="pairSource">Source</label>
+    <select id="pairSource"></select>
+    <label for="pairMix" style="margin-top:12px">In which mix</label>
+    <select id="pairMix"></select>
+  </div>
   <p class="hint" id="hint">Rotate to adjust, press to mute.</p>
   <p class="warn" id="warn" hidden></p>
 
 <script>
 const select = document.getElementById("target");
 const warn = document.getElementById("warn");
+const sourceSelect = document.getElementById("pairSource");
+const mixSelect = document.getElementById("pairMix");
 let targets = [];
 
 OpenWave.onPayload((payload) => {
   if (!payload) return;
-  targets = payload.targets || [];
   if (payload.hint) {
     document.getElementById("hint").textContent =
       "Rotate to adjust, press to mute. " + payload.hint;
   }
+  // Two dropdowns when the thing being chosen is genuinely two choices: a
+  // source and the mix it sits in. One combined list is every pairing, which
+  // grows as sources x mixes and is long before it is useful.
+  if (payload.pair) {
+    document.getElementById("single").hidden = true;
+    document.getElementById("pair").hidden = false;
+    renderPair(payload);
+    return;
+  }
+  targets = payload.targets || [];
   render(payload);
 });
+
+function fill(node, items, selected) {
+  node.innerHTML = "";
+  node.appendChild(new Option("Choose…", ""));
+  let group = null;
+  let parent = node;
+  for (const item of items) {
+    if (item.group && item.group !== group) {
+      group = item.group;
+      parent = document.createElement("optgroup");
+      parent.label = group;
+      node.appendChild(parent);
+    } else if (!item.group) {
+      parent = node;
+    }
+    const option = new Option(item.label, item.id);
+    if (item.id === selected) option.selected = true;
+    parent.appendChild(option);
+  }
+}
+
+function renderPair(payload) {
+  const pair = payload.pair;
+  warn.hidden = true;
+  if (!payload.openwave) {
+    warn.textContent = "OpenWave is not running, and this action needs it: "
+      + "a source's level inside one mix is OpenWave's own state.";
+    warn.hidden = false;
+  }
+  // "cell:<source>:<mix>"
+  const parts = (pair.chosen || "").split(":");
+  fill(sourceSelect, pair.sources, parts[1] || "");
+  fill(mixSelect, pair.mixes, parts[2] || "");
+
+  const save = () => {
+    const source = sourceSelect.value;
+    const mix = mixSelect.value;
+    // Saved only once both halves are chosen; half a target names nothing,
+    // and writing one would blank a key that already had a working pair.
+    if (!source || !mix) {
+      warn.textContent = "Choose a source and a mix.";
+      warn.hidden = false;
+      return;
+    }
+    warn.hidden = !!payload.openwave ? true : warn.hidden;
+    OpenWave.save({ target: `cell:${source}:${mix}`, mix: "" });
+  };
+  sourceSelect.onchange = save;
+  mixSelect.onchange = save;
+  OpenWave.report(`pair: ${pair.sources.length} sources x `
+    + `${pair.mixes.length} mixes, chosen=${pair.chosen || "none"}`);
+}
 
 function render(payload) {
   const chosen = OpenWave.settings().target

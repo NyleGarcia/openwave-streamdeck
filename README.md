@@ -41,8 +41,10 @@ actions:
 | **Source Level per Mix** | Music *in Chat only* — your own ears unaffected |
 | **Mix Volume** | the whole Chat Mix, Music included |
 
-Per-mix levels are listed grouped by the mix they sit in, because that is how
-the matrix reads: a column is a mix, and the rows under it are what feeds it.
+Source Level per Mix asks in **two dropdowns**, a source and a mix, because
+that is genuinely two choices. One combined list is every pairing — 21 entries
+for three mixes and seven sources, and it grows multiplicatively.
+
 On the key the source is the headline and the mix sits under it in smaller type
 — joined on one line, "Music → Chat Mix" truncates to "Music → Ch…" and loses
 the half that says where.

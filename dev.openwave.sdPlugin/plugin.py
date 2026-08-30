@@ -423,18 +423,30 @@ class Plugin:
                     "isDefault": False,
                 })
         if "cell" in kinds:
-            # Grouped by the mix they feed, because that is how the matrix
-            # reads: a column is a mix, and the rows under it feed it.
-            for mix in (data or {}).get("mixes") or []:
-                mix_id = mix.get("id")
-                mix_name = mix.get("name", mix_id)
-                for source in (data or {}).get("sources") or []:
-                    targets.append({
-                        "value": f"cell:{source.get('id')}:{mix_id}",
-                        "label": f"{source.get('name')} into {mix_name}",
-                        "group": f"In {mix_name}",
-                        "isDefault": False,
-                    })
+            # Two lists, not one of every pairing. Seven sources across three
+            # mixes is 21 combinations in a single dropdown, and the thing
+            # being chosen is genuinely two choices -- which source, and which
+            # mix -- so it is presented as two.
+            return {
+                "pair": {
+                    "mixes": [
+                        {"id": mix.get("id"),
+                         "label": mix.get("name", mix.get("id"))}
+                        for mix in (data or {}).get("mixes") or []
+                    ],
+                    "sources": [
+                        {"id": source.get("id"),
+                         "label": source.get("name", source.get("id")),
+                         "group": ("Microphones"
+                                   if source.get("kind") == "device"
+                                   else "Sources")}
+                        for source in (data or {}).get("sources") or []
+                    ],
+                    "chosen": chosen,
+                },
+                "openwave": data is not None,
+                "hint": HINTS.get(action, ""),
+            }
 
         if chosen and chosen not in {t["value"] for t in targets}:
             state = self._read(settings or {})

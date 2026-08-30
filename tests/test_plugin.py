@@ -559,12 +559,27 @@ class TestInspectorPayload(PluginCase):
         self.assertIn("src:music", values)
         self.assertFalse([v for v in values if v.startswith(("mix:", "cell:"))])
 
-    def test_mix_send_offers_only_sends(self):
-        values = self.values(P.SEND_LEVEL)
-        for source in ("dock", "arctis", "music"):
-            for mix in ("personal", "chat"):
-                self.assertIn(f"cell:{source}:{mix}", values)
-        self.assertFalse([v for v in values if v.startswith(("mix:", "src:"))])
+    def test_per_mix_offers_two_lists_not_every_pairing(self):
+        """Sources x mixes is 21 entries here and grows multiplicatively; the
+        choice is genuinely two choices, so it is offered as two."""
+        pair = self.plugin._inspector_payload(P.SEND_LEVEL)["pair"]
+        self.assertEqual([m["id"] for m in pair["mixes"]],
+                         ["personal", "chat"])
+        self.assertEqual([s["id"] for s in pair["sources"]],
+                         ["dock", "arctis", "music"])
+
+    def test_per_mix_separates_microphones_from_sources(self):
+        pair = self.plugin._inspector_payload(P.SEND_LEVEL)["pair"]
+        groups = {s["id"]: s["group"] for s in pair["sources"]}
+        self.assertEqual(groups["dock"], "Microphones")
+        self.assertEqual(groups["music"], "Sources")
+
+    def test_per_mix_reports_what_is_already_chosen(self):
+        """Both dropdowns are preselected from it, so a panel reopened on a
+        working key shows what that key does rather than two blanks."""
+        pair = self.plugin._inspector_payload(
+            P.SEND_LEVEL, {"target": "cell:music:chat"})["pair"]
+        self.assertEqual(pair["chosen"], "cell:music:chat")
 
     def test_microphones_are_separated_from_application_sources(self):
         payload = self.plugin._inspector_payload(P.SOURCE_LEVEL)
@@ -572,23 +587,12 @@ class TestInspectorPayload(PluginCase):
         self.assertEqual(groups["src:dock"], "Microphones")
         self.assertEqual(groups["src:music"], "Sources")
 
-    def test_sends_are_grouped_by_the_mix_they_feed(self):
-        """The matrix reads by column, and so should the list."""
-        payload = self.plugin._inspector_payload(P.SEND_LEVEL)
-        groups = {t["value"]: t["group"] for t in payload["targets"]}
-        self.assertEqual(groups["cell:music:chat"], "In Chat Mix")
-        self.assertEqual(groups["cell:music:personal"],
-                         "In Personal Mix")
-
-    def test_a_send_is_labelled_unambiguously(self):
-        sends = self.plugin._inspector_payload(P.SEND_LEVEL)["targets"]
-        labels = {t["value"]: t["label"] for t in sends}
-        self.assertEqual(labels["cell:music:chat"], "Music into Chat Mix")
-        trims = self.plugin._inspector_payload(P.SOURCE_LEVEL)["targets"]
-        # The trim and the send must not read the same, or the two actions
-        # look interchangeable when they are not.
-        self.assertEqual({t["value"]: t["label"] for t in trims}["src:music"],
-                         "Music")
+    def test_the_trim_action_is_a_single_list(self):
+        """Only the per-mix action pairs; a trim is one choice."""
+        payload = self.plugin._inspector_payload(P.SOURCE_LEVEL)
+        self.assertNotIn("pair", payload)
+        self.assertEqual({t["value"]: t["label"]
+                          for t in payload["targets"]}["src:music"], "Music")
 
     def test_the_system_output_is_flagged(self):
         """Muting it silences the machine, not just OpenWave."""
@@ -631,12 +635,14 @@ class TestInspectorPayload(PluginCase):
         self.assertTrue([t for t in payload["targets"]
                          if t["value"].startswith("mix:")])
 
-    def test_no_sources_or_sends_are_offered_with_openwave_closed(self):
+    def test_nothing_is_offered_with_openwave_closed(self):
         self.snapshot = None
         self.plugin._snapshot_at = 0.0
-        for action in (P.SOURCE_LEVEL, P.SEND_LEVEL):
-            self.assertEqual(
-                self.plugin._inspector_payload(action)["targets"], [], action)
+        self.assertEqual(
+            self.plugin._inspector_payload(P.SOURCE_LEVEL)["targets"], [])
+        pair = self.plugin._inspector_payload(P.SEND_LEVEL)["pair"]
+        self.assertEqual(pair["mixes"], [])
+        self.assertEqual(pair["sources"], [])
 
     def test_group_inspector(self):
         payload = self.plugin._inspector_payload(P.MIC_GROUP)

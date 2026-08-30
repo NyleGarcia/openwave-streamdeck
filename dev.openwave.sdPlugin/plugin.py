@@ -1,8 +1,15 @@
 """OpenWave plugin for OpenDeck.
 
 One process. It speaks OpenDeck's WebSocket protocol and drives PipeWire
-through pactl/wpctl; there is no sandbox to cross and nothing that needs to
-outlive the plugin, so a second process would buy nothing.
+through pactl; there is no sandbox to cross and nothing that needs to outlive
+the plugin, so a second process would buy nothing.
+
+Two kinds of target, deliberately behind one action. A mix is a PipeWire sink
+and its volume is set with pactl. A source's trim is OpenWave's own state --
+its Mixer holds the dict the window holds and rewrites sources.json whole on
+every save -- so it is set by asking OpenWave over the session bus. From the
+key's point of view both are just "the thing this dial turns", which is the
+only distinction a person placing a dial actually cares about.
 
 Nothing here may raise to the top level. OpenDeck does not restart a plugin
 that dies -- the keys simply stop responding, with no indication why -- so
@@ -18,8 +25,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from owdeck import graph, ipc, owstate     # noqa: E402
-from owdeck.ws import WebSocket            # noqa: E402
+from owdeck import graph, ipc, owstate, render   # noqa: E402
+from owdeck.ws import WebSocket                  # noqa: E402
 
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plugin.log")
 logging.basicConfig(
@@ -28,16 +35,45 @@ logging.basicConfig(
 )
 log = logging.getLogger("openwave-deck")
 
-MIX_LEVEL = "dev.openwave.mixlevel"
+VOLUME = "dev.openwave.mixlevel"
 MIC_GROUP = "dev.openwave.micgroup"
 
 # How far one dial detent moves a level. Small enough to land on a value,
 # large enough to cross the range without a long spin.
 STEP = 0.02
-# Keys and dials are refreshed on this cadence so a change made in OpenWave's
-# window, or by anything else touching the graph, shows up without the user
-# having to touch the deck first.
+# Keys are redrawn on this cadence so a change made in OpenWave's window, or
+# by anything else touching the graph, shows up without the deck being touched
+# first.
 REFRESH_SECONDS = 1.0
+# OpenWave's snapshot is fetched at most this often and shared by every key,
+# so a deck full of source dials costs one bus round trip per tick, not one
+# per key.
+SNAPSHOT_SECONDS = 0.9
+ENCODER_LAYOUT = "$B1"
+
+# Mix icons come from OpenWave's own choice for the column, so a mix that
+# looks like headphones in the window looks like headphones on the deck.
+_MIX_GLYPHS = {
+    "audio-headphones-symbolic": "headphones",
+    "media-record-symbolic": "record",
+    "system-users-symbolic": "speaker",
+}
+
+
+def parse_target(settings):
+    """("mix"|"src", id) for what a key controls, or (None, None).
+
+    Settings written before targets existed named a mix directly; they are
+    read as mix targets rather than being discarded, so a key placed earlier
+    keeps working instead of quietly going blank after an update.
+    """
+    raw = settings.get("target") or ""
+    if not raw and settings.get("mix"):
+        raw = "mix:" + settings["mix"]
+    kind, _, ident = raw.partition(":")
+    if kind in ("mix", "src") and ident:
+        return kind, ident
+    return None, None
 
 
 class Plugin:
@@ -48,7 +84,13 @@ class Plugin:
         log.info("registered as %s on port %s", uuid, port)
         # context -> settings, for every visible instance of our actions
         self._contexts = {}
+        # context -> the last payload drawn, so a tick that changes nothing
+        # sends nothing: the deck redraws on receipt, and a key repainting
+        # every second visibly flickers.
+        self._drawn = {}
         self._last_refresh = 0.0
+        self._snapshot = None
+        self._snapshot_at = 0.0
 
     # ------------------------------------------------------------ outbound
     def _send(self, event, context, payload=None):
@@ -60,51 +102,137 @@ class Plugin:
         except (OSError, ConnectionError) as exc:
             log.warning("send %s failed: %s", event, exc)
 
+    # --------------------------------------------------------- reading state
+    def _openwave(self, force=False):
+        """OpenWave's source snapshot, refetched at most once a tick."""
+        now = time.monotonic()
+        if force or self._snapshot_at == 0.0 \
+                or now - self._snapshot_at >= SNAPSHOT_SECONDS:
+            self._snapshot_at = now
+            self._snapshot = ipc.snapshot()
+        return self._snapshot
+
+    def _read(self, settings):
+        """What a volume key should show: name, percent, mute, glyph.
+
+        `ok` is False when the target cannot be read at all -- a mix routed
+        nowhere, a source whose OpenWave is closed -- which is a normal state
+        worth drawing plainly rather than an error worth hiding.
+        """
+        kind, ident = parse_target(settings)
+        if kind is None:
+            return None
+        if kind == "mix":
+            sink = owstate.mix_sink(ident)
+            name = owstate.mix_name(ident)
+            glyph = _MIX_GLYPHS.get(
+                (owstate.mixes().get(ident) or {}).get("icon_name"), "speaker")
+            if not sink or not graph.sink_exists(sink):
+                return {"name": name, "percent": 0, "muted": False,
+                        "glyph": glyph, "ok": False}
+            volume = graph.get_volume(sink)
+            return {
+                "name": name,
+                "percent": 0 if volume is None else round(volume * 100),
+                "muted": bool(graph.get_mute(sink)),
+                "glyph": glyph,
+                "ok": volume is not None,
+            }
+        data = self._openwave()
+        if data is None:
+            return {"name": "OpenWave", "percent": 0, "muted": False,
+                    "glyph": "mic", "ok": False}
+        for source in data.get("sources") or []:
+            if source.get("id") != ident:
+                continue
+            device = source.get("kind") == "device"
+            return {
+                "name": source.get("name", ident),
+                "percent": round(float(source.get("level", 1.0)) * 100),
+                "muted": bool(source.get("muted")),
+                "glyph": "mic" if device else "speaker",
+                "ok": True,
+            }
+        return {"name": "Missing", "percent": 0, "muted": False,
+                "glyph": "speaker", "ok": False}
+
+    def _group_state(self, group):
+        """(live microphone name, member count, its position) for a group."""
+        data = self._openwave()
+        if data is None:
+            return None
+        members = [s for s in (data.get("sources") or [])
+                   if (s.get("group") or "") == group]
+        live = next((s for s in members if not s.get("muted")), None)
+        position = members.index(live) + 1 if live is not None else 0
+        return (live.get("name", "") if live else "", len(members), position)
+
+    # ------------------------------------------------------------- drawing
+    def _paint(self, context, image, title=""):
+        """Send an image only when it actually changed."""
+        if self._drawn.get(context) == image:
+            return
+        self._drawn[context] = image
+        self._send("setImage", context,
+                   {"image": render.data_uri(image), "target": 0})
+        # The image carries the text, so any title OpenDeck would draw on top
+        # of it is duplication; clearing it once keeps the key clean.
+        self._send("setTitle", context, {"title": title, "target": 0})
+
+    def _paint_strip(self, context, state):
+        """The encoder's touch strip, via the $B1 layout."""
+        accent = render.MUTED if state["muted"] else render.LIVE
+        feedback = {
+            "title": state["name"],
+            "icon": render.data_uri(
+                render.strip_icon(state["glyph"], muted=state["muted"],
+                                  live=state["ok"])),
+            "value": "MUTED" if state["muted"] else f"{state['percent']}%",
+            "indicator": {
+                "value": 0 if state["muted"] else state["percent"],
+                "bar_fill_c": accent,
+            },
+        }
+        key = ("strip",) + tuple(sorted(str(v) for v in feedback.values()))
+        if self._drawn.get((context, "strip")) == key:
+            return
+        self._drawn[(context, "strip")] = key
+        self._send("setFeedback", context, feedback)
+
     def _render(self, context):
         """Draw one instance from live audio state."""
         settings = self._contexts.get(context) or {}
         if settings.get("action") == MIC_GROUP:
             self._render_group(context, settings)
             return
-        mix_id = settings.get("mix")
-        if not mix_id:
-            self._send("setTitle", context, {"title": "Pick\na mix"})
+
+        state = self._read(settings)
+        if state is None:
+            self._paint(context, render.unconfigured_key(
+                "Pick a mix", "or a source"))
+            if settings.get("controller") == "Encoder":
+                self._send("setFeedback", context,
+                           {"title": "OpenWave", "value": "--"})
             return
-        sink = owstate.mix_sink(mix_id)
-        name = owstate.mix_name(mix_id)
-        if not sink or not graph.sink_exists(sink):
-            # A mix routed nowhere has no sink at all, which is a normal
-            # state in OpenWave rather than an error.
-            self._send("setTitle", context, {"title": f"{name}\n--"})
-            return
-        volume = graph.get_volume(sink)
-        muted = graph.get_mute(sink)
-        percent = 0 if volume is None else round(volume * 100)
-        title = f"{name}\n{'MUTE' if muted else f'{percent}%'}"
-        self._send("setTitle", context, {"title": title})
+        self._paint(context, render.level_key(
+            state["name"], state["percent"], state["muted"],
+            kind=state["glyph"], unavailable=not state["ok"]))
         if settings.get("controller") == "Encoder":
-            self._send("setFeedback", context, {
-                "title": name,
-                "value": "MUTE" if muted else f"{percent}%",
-                "indicator": {"value": percent, "opacity": 0.4 if muted else 1.0},
-            })
+            self._paint_strip(context, state)
 
     def _render_group(self, context, settings):
         group = settings.get("group")
         if not group:
-            self._send("setTitle", context, {"title": "Pick\na group"})
+            self._paint(context, render.unconfigured_key(
+                "Pick a group", "in settings", kind="mic"))
             return
-        live = ""
-        for source in owstate.sources().values():
-            if (source.get("group") or "").strip() == group \
-                    and not source.get("muted"):
-                live = source.get("name", "")
-                break
-        # The live microphone's name is the useful thing on the key, not the
-        # group's: the group is what you chose when you placed it.
-        self._send("setTitle", context, {
-            "title": f"{group}\n{live or '--'}",
-        })
+        state = self._group_state(group)
+        if state is None:
+            self._paint(context, render.group_key(group, "", 0,
+                                                  unavailable=True))
+            return
+        live, count, position = state
+        self._paint(context, render.group_key(group, live, count, position))
 
     def _render_all(self):
         for context in list(self._contexts):
@@ -114,36 +242,89 @@ class Plugin:
                 log.exception("render failed for %s", context)
 
     # ------------------------------------------------------------- actions
+    def _set_level(self, settings, value):
+        kind, ident = parse_target(settings)
+        value = max(0.0, min(1.0, value))
+        if kind == "mix":
+            sink = owstate.mix_sink(ident)
+            if sink:
+                graph.set_volume(sink, value)
+        elif kind == "src":
+            ipc.set_source_level(ident, value)
+            self._openwave(force=True)
+
     def _adjust(self, context, ticks):
         settings = self._contexts.get(context) or {}
-        sink = owstate.mix_sink(settings.get("mix", ""))
-        if not sink:
+        state = self._read(settings)
+        if state is None or not state["ok"]:
             return
-        current = graph.get_volume(sink)
-        if current is None:
+        self._set_level(settings, state["percent"] / 100.0 + ticks * STEP)
+        self._render(context)
+
+    def _toggle_mute(self, context):
+        settings = self._contexts.get(context) or {}
+        kind, ident = parse_target(settings)
+        if kind == "mix":
+            sink = owstate.mix_sink(ident)
+            if not sink:
+                self._send("showAlert", context)
+                return
+            graph.toggle_mute(sink)
+        elif kind == "src":
+            if ipc.toggle_source_mute(ident) is False:
+                # A source's mute lives in OpenWave; with it closed there is
+                # nothing to flip, and saying so beats a key that looks dead.
+                self._send("showAlert", context)
+                return
+            self._openwave(force=True)
+        else:
+            self._send("showAlert", context)
             return
-        graph.set_volume(sink, current + ticks * STEP)
         self._render(context)
 
     def _switch_group(self, context):
         settings = self._contexts.get(context) or {}
         group = settings.get("group")
         if not group:
-            return
-        if not ipc.switch_group(group):
-            # OpenWave owns which microphone is live; with it closed there is
-            # nothing to switch, and saying so beats a key that looks dead.
             self._send("showAlert", context)
             return
+        if not ipc.switch_group(group):
+            self._send("showAlert", context)
+            return
+        self._openwave(force=True)
         self._render(context)
 
-    def _toggle_mute(self, context):
-        settings = self._contexts.get(context) or {}
-        sink = owstate.mix_sink(settings.get("mix", ""))
-        if not sink:
-            return
-        graph.toggle_mute(sink)
-        self._render(context)
+    # ------------------------------------------------- property inspector
+    def _inspector_payload(self, action):
+        if action == MIC_GROUP:
+            data = self._openwave(force=True)
+            return {
+                "openwave": data is not None,
+                "groups": list((data or {}).get("groups") or []),
+            }
+        default = graph.default_sink()
+        data = self._openwave(force=True)
+        targets = [
+            {
+                "value": f"mix:{mix_id}",
+                "label": label,
+                "group": "Mixes",
+                # The monitoring mix is normally the system default sink, so
+                # its master is the machine's volume. The inspector says so
+                # rather than letting someone find out by muting everything.
+                "isDefault": sink == default,
+            }
+            for mix_id, label, sink in owstate.mix_choices()
+        ]
+        for source in (data or {}).get("sources") or []:
+            targets.append({
+                "value": f"src:{source.get('id')}",
+                "label": source.get("name", source.get("id", "")),
+                "group": ("Microphones" if source.get("kind") == "device"
+                          else "Sources"),
+                "isDefault": False,
+            })
+        return {"targets": targets, "openwave": data is not None}
 
     # ------------------------------------------------------------- inbound
     def _handle(self, message):
@@ -154,11 +335,20 @@ class Plugin:
         if event in ("willAppear", "didReceiveSettings"):
             settings = dict(payload.get("settings") or {})
             settings["controller"] = payload.get("controller", "Keypad")
-            settings["action"] = message.get("action", MIX_LEVEL)
+            settings["action"] = message.get("action", VOLUME)
             self._contexts[context] = settings
+            # A redraw after a settings change must not be suppressed by the
+            # previous target's cached image.
+            self._drawn.pop(context, None)
+            self._drawn.pop((context, "strip"), None)
+            if settings["controller"] == "Encoder":
+                self._send("setFeedbackLayout", context,
+                           {"layout": ENCODER_LAYOUT})
             self._render(context)
         elif event == "willDisappear":
             self._contexts.pop(context, None)
+            self._drawn.pop(context, None)
+            self._drawn.pop((context, "strip"), None)
         elif event == "dialRotate":
             self._adjust(context, int(payload.get("ticks", 0)))
         elif event in ("dialDown", "keyDown", "touchTap"):
@@ -167,31 +357,15 @@ class Plugin:
                 self._switch_group(context)
             else:
                 self._toggle_mute(context)
-        elif event == "sendToPlugin" or event == "propertyInspectorDidAppear":
-            # The inspector asks what to offer; the mix list is whatever
+        elif event == "sendToPlugin":
+            # The inspector asks what to offer; the lists are whatever
             # OpenWave currently has, never a hardcoded set.
-            if (payload.get("request") == "groups"
-                    or message.get("action") == MIC_GROUP):
-                self._send("sendToPropertyInspector", context, {
-                    "groups": ipc.source_groups(),
-                    "openwave": ipc.available(),
-                })
-                return
-            default = graph.default_sink()
-            self._send("sendToPropertyInspector", context, {
-                "mixes": [
-                    {
-                        "id": mix_id,
-                        "label": label,
-                        # The monitoring mix is normally the system default
-                        # sink, so its master is the machine's volume. The
-                        # inspector says so rather than letting someone find
-                        # out by muting everything.
-                        "isDefault": sink == default,
-                    }
-                    for mix_id, label, sink in owstate.mix_choices()
-                ],
-            })
+            action = (payload.get("action")
+                      or message.get("action")
+                      or (self._contexts.get(context) or {}).get("action")
+                      or VOLUME)
+            self._send("sendToPropertyInspector", context,
+                       self._inspector_payload(action))
 
     # ---------------------------------------------------------------- loop
     def run(self):

@@ -3,108 +3,85 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>OpenWave — Mix Level</title>
-<style>
-  :root { color-scheme: dark; }
-  body {
-    margin: 0; padding: 12px;
-    font: 13px/1.45 system-ui, sans-serif;
-    color: #e6e6e6; background: #2b2b2b;
-  }
-  label { display: block; margin-bottom: 6px; font-weight: 600; font-size: 12px; }
-  select {
-    width: 100%; padding: 7px 8px; border-radius: 7px;
-    border: 1px solid #555; background: #3a3a3a; color: #fff; font-size: 13px;
-  }
-  p.hint { margin: 10px 0 0; font-size: 11px; color: #a8a8a8; }
-  p.warn { margin: 10px 0 0; font-size: 11px; color: #f5a623; }
-</style>
+<title>OpenWave — Volume</title>
+<link rel="stylesheet" href="_shared.css" />
+<script src="_shared.js"></script>
 </head>
 <body>
-  <label for="mix">Mix</label>
-  <select id="mix"><option value="">Loading…</option></select>
+  <label for="target">Control</label>
+  <select id="target"><option value="">Loading…</option></select>
   <p class="hint">
-    Rotate to set the level, press to mute. This is the mix's own master, so it
-    affects everything routed into it and everything capturing from it.
+    Rotate or press to adjust, press to mute. A mix is mastered at its own
+    sink, so it moves everything routed into it and everything capturing from
+    it at once. A microphone or source is trimmed inside OpenWave, ahead of
+    the per-mix faders.
   </p>
   <p class="warn" id="warn" hidden></p>
 
 <script>
-// OpenDeck calls this once the inspector is on screen. The alias is what the
-// Elgato SDK names it; OpenDeck accepts either.
-window.connectElgatoStreamDeckSocket = connect;
-window.connectOpenActionSocket = connect;
+const select = document.getElementById("target");
+const warn = document.getElementById("warn");
+let targets = [];
 
-let ws = null;
-let uuid = null;
-let settings = {};
+OpenWave.onPayload((payload) => {
+  if (!payload) return;
+  targets = payload.targets || [];
+  render(payload);
+});
 
-function connect(port, inUUID, registerEvent, _info, actionInfo) {
-  uuid = inUUID;
-  try { settings = JSON.parse(actionInfo).payload.settings || {}; } catch (e) { settings = {}; }
-
-  ws = new WebSocket("ws://127.0.0.1:" + port);
-  ws.onopen = () => {
-    ws.send(JSON.stringify({ event: registerEvent, uuid: uuid }));
-    // Ask the plugin what mixes exist. Never a hardcoded list: mixes are
-    // user-defined in OpenWave and can be added, renamed or removed at any
-    // time, so the only correct source is whatever it reports right now.
-    ws.send(JSON.stringify({
-      event: "sendToPlugin", context: uuid, payload: { request: "mixes" },
-    }));
-  };
-  ws.onmessage = (event) => {
-    let message;
-    try { message = JSON.parse(event.data); } catch (e) { return; }
-    if (message.event === "sendToPropertyInspector") {
-      render(message.payload && message.payload.mixes);
-    }
-  };
-}
-
-function render(mixes) {
-  const select = document.getElementById("mix");
-  const warn = document.getElementById("warn");
+function render(payload) {
+  const chosen = OpenWave.settings().target
+    || (OpenWave.settings().mix ? "mix:" + OpenWave.settings().mix : "");
   select.innerHTML = "";
+  warn.hidden = true;
 
-  if (!mixes || mixes.length === 0) {
-    select.innerHTML = '<option value="">No mixes found</option>';
+  if (targets.length === 0) {
+    select.innerHTML = '<option value="">Nothing to control</option>';
     warn.textContent = "OpenWave has no mixes configured, or its "
       + "configuration could not be read.";
     warn.hidden = false;
     return;
   }
 
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = "Choose a mix…";
+  const placeholder = new Option("Choose what to control…", "");
   select.appendChild(placeholder);
 
-  for (const mix of mixes) {
-    const option = document.createElement("option");
-    option.value = mix.id;
-    option.textContent = mix.label + (mix.isDefault ? "  (system output)" : "");
-    if (mix.id === settings.mix) option.selected = true;
-    select.appendChild(option);
+  // Grouped so the three kinds are told apart at a glance: a mix and a
+  // microphone can easily share a name, and they behave very differently.
+  const groups = new Map();
+  for (const target of targets) {
+    if (!groups.has(target.group)) groups.set(target.group, []);
+    groups.get(target.group).push(target);
+  }
+  for (const [name, members] of groups) {
+    const optgroup = document.createElement("optgroup");
+    optgroup.label = name;
+    for (const target of members) {
+      const option = new Option(
+        target.label + (target.isDefault ? "  (system output)" : ""),
+        target.value,
+      );
+      if (target.value === chosen) option.selected = true;
+      optgroup.appendChild(option);
+    }
+    select.appendChild(optgroup);
   }
 
-  select.onchange = () => {
-    settings.mix = select.value;
-    ws.send(JSON.stringify({
-      event: "setSettings", context: uuid, payload: settings,
-    }));
-    showDefaultWarning(mixes);
-  };
-  showDefaultWarning(mixes);
+  if (!payload.openwave) {
+    warn.textContent = "OpenWave is not running, so only mixes are listed. "
+      + "Start it to control microphones and sources too.";
+    warn.hidden = false;
+  } else {
+    showDefaultWarning(chosen);
+  }
 }
 
-function showDefaultWarning(mixes) {
+function showDefaultWarning(chosen) {
   // The monitoring mix is normally the system default sink, so its master is
   // effectively the machine's volume. Worth saying plainly rather than
   // letting someone discover it by muting everything.
-  const warn = document.getElementById("warn");
-  const chosen = mixes.find((m) => m.id === settings.mix);
-  if (chosen && chosen.isDefault) {
+  const target = targets.find((t) => t.value === chosen);
+  if (target && target.isDefault) {
     warn.textContent = "This mix is the system output. Muting it silences "
       + "everything, not just OpenWave.";
     warn.hidden = false;
@@ -112,6 +89,13 @@ function showDefaultWarning(mixes) {
     warn.hidden = true;
   }
 }
+
+select.onchange = () => {
+  // The legacy key is cleared, not left behind: with both set, a settings
+  // blob read by an older build would disagree with this one.
+  OpenWave.save({ target: select.value, mix: "" });
+  showDefaultWarning(select.value);
+};
 </script>
 </body>
 </html>

@@ -408,7 +408,8 @@ class TestTheSplitActionsShareBehaviour(PluginCase):
             seen[action] = base64.b64decode(uri.split(",", 1)[1]).decode()
         self.assertIn("Pick a mix", seen[P.VOLUME])
         self.assertIn("Pick a source", seen[P.SOURCE_LEVEL])
-        self.assertIn("Pick a send", seen[P.SEND_LEVEL])
+        self.assertIn("Pick a source", seen[P.SEND_LEVEL])
+        self.assertIn("and a mix", seen[P.SEND_LEVEL])
 
 
 class TestGroupState(PluginCase):
@@ -575,9 +576,9 @@ class TestInspectorPayload(PluginCase):
         """The matrix reads by column, and so should the list."""
         payload = self.plugin._inspector_payload(P.SEND_LEVEL)
         groups = {t["value"]: t["group"] for t in payload["targets"]}
-        self.assertEqual(groups["cell:music:chat"], "Sends into Chat Mix")
+        self.assertEqual(groups["cell:music:chat"], "In Chat Mix")
         self.assertEqual(groups["cell:music:personal"],
-                         "Sends into Personal Mix")
+                         "In Personal Mix")
 
     def test_a_send_is_labelled_unambiguously(self):
         sends = self.plugin._inspector_payload(P.SEND_LEVEL)["targets"]

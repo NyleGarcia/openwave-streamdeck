@@ -9,7 +9,7 @@ An [OpenDeck](https://github.com/nekename/OpenDeck) plugin for controlling
 |---|---|---|
 | **Mix Volume** | a mix's master | no |
 | **Source Volume** | a source's trim, in every mix at once | yes |
-| **Mix Send** | one matrix cell: a source *into one mix* | yes |
+| **Source Level per Mix** | one source inside a *single* mix | yes |
 | **Mic Group** | which microphone in a group has the floor | yes |
 
 All four work on a key or a dial except Mic Group, which is a key.
@@ -32,11 +32,20 @@ any kind, and a target its list would no longer offer is shown under
 **Currently set** rather than vanishing, which would read as the key having
 lost its setting.
 
-Sends are listed grouped by the mix they feed, because that is how the matrix
-reads: a column is a mix, and the rows under it are what feeds it. On the key
-the source is the headline and the mix sits under it in smaller type — joined
-on one line, "Music → Chat Mix" truncates to "Music → Ch…" and loses the half
-that says where it goes.
+"Turn Music down" means three different things, which is why there are three
+actions:
+
+| Action | What moves |
+|---|---|
+| **Source Volume** | Music, everywhere — every mix at once |
+| **Source Level per Mix** | Music *in Chat only* — your own ears unaffected |
+| **Mix Volume** | the whole Chat Mix, Music included |
+
+Per-mix levels are listed grouped by the mix they sit in, because that is how
+the matrix reads: a column is a mix, and the rows under it are what feeds it.
+On the key the source is the headline and the mix sits under it in smaller type
+— joined on one line, "Music → Chat Mix" truncates to "Music → Ch…" and loses
+the half that says where.
 
 **Mic Group** hands a microphone group over to its next microphone: two mics on
 one speaker, one press to swap. The key shows which microphone is currently

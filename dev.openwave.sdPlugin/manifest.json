@@ -73,10 +73,10 @@
       "PropertyInspectorPath": "pi/mixlevel.html"
     },
     {
-      "Name": "Mix Send",
+      "Name": "Source Level per Mix",
       "UUID": "dev.openwave.sendlevel",
       "Icon": "icons/sendlevel",
-      "Tooltip": "How much of one source a single mix receives. Press to mute.",
+      "Tooltip": "One source's level inside a single mix, leaving every other mix alone. Press to mute.",
       "Controllers": [
         "Keypad",
         "Encoder"

@@ -54,7 +54,7 @@ VOLUME_KINDS = {
 PROMPTS = {
     VOLUME: ("Pick a mix", "in settings"),
     SOURCE_LEVEL: ("Pick a source", "in settings"),
-    SEND_LEVEL: ("Pick a send", "in settings"),
+    SEND_LEVEL: ("Pick a source", "and a mix"),
 }
 HINTS = {
     VOLUME: "A mix's master. It moves everything routed into the mix and "
@@ -63,9 +63,9 @@ HINTS = {
     SOURCE_LEVEL: "A source's trim, applied ahead of the per-mix faders, so "
                   "it moves that source in every mix at once. Needs OpenWave "
                   "running.",
-    SEND_LEVEL: "One cell of the matrix: how much of a source a single mix "
-                "receives. Everywhere else is untouched. Needs OpenWave "
-                "running.",
+    SEND_LEVEL: "One source's level inside a single mix. Every other mix is "
+                "left alone, which is what separates this from Source "
+                "Volume. Needs OpenWave running.",
 }
 
 # How far one dial detent moves a level. Small enough to land on a value,
@@ -432,7 +432,7 @@ class Plugin:
                     targets.append({
                         "value": f"cell:{source.get('id')}:{mix_id}",
                         "label": f"{source.get('name')} into {mix_name}",
-                        "group": f"Sends into {mix_name}",
+                        "group": f"In {mix_name}",
                         "isDefault": False,
                     })
 

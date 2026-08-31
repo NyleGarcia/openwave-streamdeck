@@ -916,3 +916,74 @@ class TestRendering(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestScene(PluginCase):
+    """One key, one whole setup: recall on tap, save on a deliberate hold."""
+
+    def setUp(self):
+        super().setUp()
+        self.plugin._scene_pressed = {}
+        self._patch(ipc, "available", lambda: True)
+        self._patch(ipc, "scenes", lambda: {"streaming": "Streaming",
+                                            "late-night": "Late Night"})
+        self._patch(ipc, "apply_scene",
+                    lambda sid: self.calls.append(("apply", sid)) or True)
+        self._patch(ipc, "save_scene",
+                    lambda name: self.calls.append(("save", name)) or True)
+
+    def _place(self, hold_saves=False, scene="streaming"):
+        settings = {"scene": scene, "scene_label": "Streaming"}
+        if hold_saves:
+            settings["hold_saves"] = True
+        self.place("c", P.SCENE, settings)
+
+    def _tap(self, held=0.0):
+        self.plugin._handle({"event": "keyDown", "context": "c"})
+        if held:
+            self.plugin._scene_pressed["c"] -= held
+        self.plugin._handle({"event": "keyUp", "context": "c"})
+
+    def test_a_tap_recalls_the_scene(self):
+        self._place()
+        self._tap()
+        self.assertIn(("apply", "streaming"), self.calls)
+        self.assertTrue(self.events("showOk"))
+
+    def test_a_hold_saves_when_asked_to(self):
+        self._place(hold_saves=True)
+        self._tap(held=1.0)
+        self.assertIn(("save", "Streaming"), self.calls)
+        self.assertNotIn(("apply", "streaming"), self.calls,
+                         "a save must not also recall")
+
+    def test_a_hold_still_recalls_without_the_opt_in(self):
+        """Hold-to-save overwrites a scene; nobody gets that from a key
+        they merely pressed slowly."""
+        self._place(hold_saves=False)
+        self._tap(held=2.0)
+        self.assertIn(("apply", "streaming"), self.calls)
+
+    def test_an_unconfigured_key_alerts_instead_of_guessing(self):
+        self.place("c", P.SCENE, {})
+        self._tap()
+        self.assertTrue(self.events("showAlert"))
+        self.assertEqual([c for c in self.calls if c[0] in ("apply", "save")],
+                         [])
+
+    def test_a_touch_tap_recalls_immediately(self):
+        self._place()
+        self.plugin._handle({"event": "touchTap", "context": "c"})
+        self.assertIn(("apply", "streaming"), self.calls)
+
+    def test_key_up_on_other_actions_is_inert(self):
+        self.place("c", VOLUME_SETTINGS_ACTION := P.VOLUME,
+                   {"target": "mix:personal"})
+        self.plugin._handle({"event": "keyUp", "context": "c"})
+        self.assertEqual(self.calls, [])
+
+    def test_inspector_offers_the_scenes_sorted_by_name(self):
+        payload = self.plugin._inspector_payload(P.SCENE, {})
+        self.assertTrue(payload["openwave"])
+        self.assertEqual([s["label"] for s in payload["scenes"]],
+                         ["Late Night", "Streaming"])

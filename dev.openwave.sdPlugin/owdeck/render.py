@@ -364,3 +364,32 @@ def strip(name, percent, muted, kind="speaker", unavailable=False,
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{STRIP_W}" '
             f'height="{STRIP_H}" viewBox="0 0 {STRIP_W} {STRIP_H}">'
             f'{body}</svg>')
+
+
+def scene_key(name, unavailable=False, saved=False):
+    """A scene key: one press recalls a whole named setup.
+
+    The scene's name is the headline. `saved` flashes the confirmation
+    frame after a hold-to-save, because a save changes nothing visible
+    anywhere else — without it the gesture feels like it did nothing.
+    """
+    if unavailable:
+        return _document(
+            _glyph("swap", THEME["idle"], 50, 24, 1.75, muted=True)
+            + _text_block(_wrap(name or "Scene", 12), 104, 18, THEME["dim"])
+            + _text_block(["OpenWave closed"], 126, 13, THEME["dim"],
+                          weight="400"),
+            THEME["idle"])
+    accent = THEME["live"]
+    lines = _wrap(name or "Pick a scene", 12)
+    body = (
+        _glyph("swap", accent, 11, 10, 1.3)
+        + f'<text x="{SIZE - 13}" y="34" fill="{THEME["dim"]}" font-size="16" '
+        f'font-family="{FONT}" text-anchor="end">SCENE</text>'
+        + _text_block(lines, 90 if len(lines) > 1 else 94,
+                      23 if len(lines) == 1 else 20, THEME["text"])
+        + _text_block(["saved ✓" if saved else "press to recall"],
+                      126, 13, accent if saved else THEME["dim"],
+                      weight="700" if saved else "400")
+    )
+    return _document(body, accent)

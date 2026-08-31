@@ -40,6 +40,7 @@ VOLUME = "dev.openwave.mixlevel"
 SOURCE_LEVEL = "dev.openwave.sourcelevel"
 SEND_LEVEL = "dev.openwave.sendlevel"
 MIC_GROUP = "dev.openwave.micgroup"
+SCENE = "dev.openwave.scene"
 
 # One action per kind of thing, rather than one action with every target in a
 # single list. With three mixes and seven sources that list is 31 entries, of
@@ -160,6 +161,7 @@ class Plugin:
         self._ws.send_json({"event": "getGlobalSettings", "context": uuid})
         # context -> settings, for every visible instance of our actions
         self._contexts = {}
+        self._scene_pressed = {}
         # context -> the last payload drawn, so a tick that changes nothing
         # sends nothing: the deck redraws on receipt, and a key repainting
         # every second visibly flickers.
@@ -293,8 +295,21 @@ class Plugin:
         """Draw one instance from live audio state."""
         settings = self._contexts.get(context) or {}
         action = settings.get("action", VOLUME)
+        if action == SCENE:
+            data = ipc.scenes()
+            return {
+                "openwave": ipc.available(),
+                "scenes": [{"value": sid, "label": name}
+                           for sid, name in sorted(
+                               data.items(), key=lambda kv: kv[1].lower())],
+                "themes": render.theme_choices(),
+                "theme": self._theme,
+            }
         if action == MIC_GROUP:
             self._render_group(context, settings)
+            return
+        if action == SCENE:
+            self._render_scene(context, settings)
             return
 
         encoder = settings.get("controller") == "Encoder"
@@ -324,6 +339,40 @@ class Plugin:
             press=press_action(settings), step=step_percent(settings)))
         if encoder:
             self._paint_strip(context, state)
+
+    def _render_scene(self, context, settings):
+        label = settings.get("scene_label") or ""
+        if not settings.get("scene"):
+            self._paint(context, render.unconfigured_key(
+                "Pick a scene", "in settings", kind="speaker"))
+            return
+        self._paint(context, render.scene_key(
+            label or settings.get("scene"),
+            unavailable=not ipc.available()))
+
+    def _scene_down(self, context):
+        self._scene_pressed[context] = time.monotonic()
+
+    def _scene_up(self, context):
+        """Apply on press; with hold-to-save on, a long press saves instead.
+
+        Saving reuses the scene's display name, which OpenWave slugs back
+        to the same id — a deliberate overwrite of the chosen scene with
+        the desk's current state.
+        """
+        settings = self._contexts.get(context) or {}
+        sid = settings.get("scene")
+        if not sid:
+            self._send("showAlert", context)
+            return
+        held = time.monotonic() - self._scene_pressed.pop(
+            context, time.monotonic())
+        if settings.get("hold_saves") and held >= 0.6:
+            ok = ipc.save_scene(settings.get("scene_label") or sid)
+        else:
+            ok = ipc.apply_scene(sid)
+        self._send("showOk" if ok else "showAlert", context)
+        self._render(context)
 
     def _render_group(self, context, settings):
         group = settings.get("group")
@@ -431,6 +480,16 @@ class Plugin:
         this action would not otherwise offer, and dropping it silently from
         the list would look like the key had lost its setting.
         """
+        if action == SCENE:
+            data = ipc.scenes()
+            return {
+                "openwave": ipc.available(),
+                "scenes": [{"value": sid, "label": name}
+                           for sid, name in sorted(
+                               data.items(), key=lambda kv: kv[1].lower())],
+                "themes": render.theme_choices(),
+                "theme": self._theme,
+            }
         if action == MIC_GROUP:
             data = self._openwave(force=True)
             return {
@@ -559,8 +618,18 @@ class Plugin:
             settings = self._contexts.get(context) or {}
             if settings.get("action") == MIC_GROUP:
                 self._switch_group(context)
+            elif settings.get("action") == SCENE:
+                if event == "touchTap":
+                    self._scene_pressed[context] = 0.0
+                    self._scene_up(context)
+                else:
+                    self._scene_down(context)
             else:
                 self._press(context)
+        elif event in ("keyUp", "dialUp"):
+            settings = self._contexts.get(context) or {}
+            if settings.get("action") == SCENE:
+                self._scene_up(context)
         elif event == "propertyInspectorDidAppear":
             # Pushed, not waited for. The panel asks once when its webview is
             # built, which can be long before anyone looks at it, and a reply

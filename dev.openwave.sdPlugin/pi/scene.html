@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OpenWave — Scene</title>
+<link rel="stylesheet" href="_shared.css" />
+<script src="_shared.js"></script>
+</head>
+<body>
+  <label for="scene">Scene</label>
+  <select id="scene"><option value="">Loading…</option></select>
+  <p class="hint">
+    Press the key to recall the scene — every trim, send, mute, output,
+    master and device setting it holds.
+  </p>
+  <label style="display:flex;gap:8px;align-items:center;margin-top:10px">
+    <input type="checkbox" id="hold" />
+    Hold the key (~1s) to save the current state into this scene
+  </label>
+  <p class="warn" id="warn" hidden></p>
+  <div style="margin-top:16px;border-top:1px solid #343a42;padding-top:14px">
+    <label for="theme">Colours <span style="font-weight:400;color:#8b929b">
+      — applies to every key</span></label>
+    <select id="theme"></select>
+  </div>
+
+<script>
+const select = document.getElementById("scene");
+const hold = document.getElementById("hold");
+const warn = document.getElementById("warn");
+
+OpenWave.onPayload((payload) => {
+  if (!payload) return;
+  const node = document.getElementById("theme");
+  if (payload.themes && !node.options.length) {
+    for (const theme of payload.themes) {
+      node.appendChild(new Option(theme.label, theme.id));
+    }
+    node.onchange = () => OpenWave.saveGlobal({ theme: node.value });
+  }
+  if (payload.theme) node.value = payload.theme;
+  render(payload);
+});
+
+function render(payload) {
+  const scenes = payload.scenes || [];
+  const chosen = OpenWave.settings().scene || "";
+  hold.checked = !!OpenWave.settings().hold_saves;
+  select.innerHTML = "";
+  warn.hidden = true;
+
+  if (!payload.openwave) {
+    select.innerHTML = '<option value="">OpenWave is not running</option>';
+    warn.textContent = "Start OpenWave, then reopen this panel.";
+    warn.hidden = false;
+    return;
+  }
+  if (scenes.length === 0) {
+    select.innerHTML = '<option value="">No scenes yet</option>';
+    warn.textContent = "Save a scene in OpenWave first: the camera menu in "
+      + "the header bar, “Save current as…”.";
+    warn.hidden = false;
+    return;
+  }
+
+  select.appendChild(new Option("Choose a scene…", ""));
+  for (const scene of scenes) {
+    const option = new Option(scene.label, scene.value);
+    if (scene.value === chosen) option.selected = true;
+    select.appendChild(option);
+  }
+}
+
+select.onchange = () => OpenWave.save({
+  scene: select.value,
+  scene_label: select.options[select.selectedIndex].text,
+});
+hold.onchange = () => OpenWave.save({ hold_saves: hold.checked });
+OpenWave.report("scene inspector loaded");
+</script>
+</body>
+</html>

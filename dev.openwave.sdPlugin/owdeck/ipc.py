@@ -231,3 +231,33 @@ def source_groups():
         return list(data.get("groups") or [])
     state = _state("source-groups")
     return list(state) if state else []
+
+
+def scenes():
+    """{scene id: display name} OpenWave currently stores, {} when closed.
+
+    The `scenes` action publishes its answer as state, exactly like
+    snapshot: activate to refresh, describe to read.
+    """
+    raw = _state("scenes")
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def apply_scene(scene_id):
+    """Recall a scene: every trim, send, mute, output, master and device
+    setting it holds. Entries naming things since removed are skipped by
+    OpenWave — recalling an old scene is never dangerous."""
+    parameter = GLib.Variant("s", scene_id) if _HAVE_GI else None
+    return activate("apply-scene", parameter, f"<'{_quote(scene_id)}'>")
+
+
+def save_scene(name):
+    """Capture the current levels under a name, replacing that scene."""
+    parameter = GLib.Variant("s", name) if _HAVE_GI else None
+    return activate("save-scene", parameter, f"<'{_quote(name)}'>")

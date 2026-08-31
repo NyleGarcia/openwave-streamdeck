@@ -115,6 +115,23 @@
           "Title": ""
         }
       ]
+    },
+    {
+      "Name": "Scene",
+      "UUID": "dev.openwave.scene",
+      "Icon": "icons/scene",
+      "Tooltip": "Recall an OpenWave scene; optionally hold to save the current state into it.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "SupportedInMultiActions": false,
+      "PropertyInspectorPath": "pi/scene.html",
+      "States": [
+        {
+          "Image": "icons/scene",
+          "Title": ""
+        }
+      ]
     }
   ]
 }

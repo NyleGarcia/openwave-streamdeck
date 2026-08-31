@@ -1,3 +1,10 @@
+# [0.6.0](https://github.com/NyleGarcia/openwave-streamdeck/compare/v0.5.0...v0.6.0) (2026-08-31)
+
+
+### Features
+
+* scene keys — one press recalls a whole setup, a hold saves it back ([cc36ca7](https://github.com/NyleGarcia/openwave-streamdeck/commit/cc36ca70d3f2a03eacb41d7296d862864ff16cf4))
+
 # [0.5.0](https://github.com/NyleGarcia/openwave-streamdeck/compare/v0.4.0...v0.5.0) (2026-08-30)
 
 

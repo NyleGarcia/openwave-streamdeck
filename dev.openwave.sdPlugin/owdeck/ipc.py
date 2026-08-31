@@ -41,6 +41,7 @@ except (ImportError, ValueError):                          # pragma: no cover
     _HAVE_GI = False
 
 _proxy = None
+_on_changed = None
 
 
 def _get_proxy():
@@ -68,7 +69,46 @@ def _get_proxy():
     # what says whether anyone is actually listening.
     if _proxy.get_name_owner() is None:
         _proxy = None
+    elif _on_changed is not None:
+        _attach(_proxy)
     return _proxy
+
+
+def _attach(proxy):
+    """Wire the Changed signal into the subscriber, once per proxy."""
+    if getattr(proxy, "_ow_attached", False):
+        return
+    proxy._ow_attached = True
+
+    def _relay(_proxy, _sender, signal, params):
+        if signal != "Changed" or _on_changed is None:
+            return
+        try:
+            _removed, _enabled, states = params.unpack()
+        except (TypeError, ValueError):
+            return
+        _on_changed(dict(states or {}))
+
+    proxy.connect("g-signal", _relay)
+
+
+def subscribe(callback):
+    """Deliver OpenWave's pushed state changes to `callback(states)`.
+
+    `states` maps action name to its new state value (the snapshot JSON,
+    the scenes JSON, ...). Delivery rides the GLib default main context —
+    the caller must pump it (context.iteration) from its own loop. With
+    gi missing there is nothing to subscribe with, and the caller keeps
+    its polling fallback.
+    """
+    global _on_changed
+    _on_changed = callback
+    if _HAVE_GI:
+        proxy = _get_proxy()
+        if proxy is not None:
+            _attach(proxy)
+        return True
+    return False
 
 
 def _call(method, parameters):
@@ -261,3 +301,30 @@ def save_scene(name):
     """Capture the current levels under a name, replacing that scene."""
     parameter = GLib.Variant("s", name) if _HAVE_GI else None
     return activate("save-scene", parameter, f"<'{_quote(name)}'>")
+
+
+def levels():
+    """Every live meter's latest peak, {src:<id>|mix:<id>: 0..1}.
+
+    Poll-only by design: OpenWave does not broadcast meter frames, so a
+    remote reads this only while a meter-bearing control is on screen.
+    """
+    raw = _state("levels")
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def toggle_fx(source_id, effect):
+    """Flip one of a microphone's toggleable effects: lowcut, gate, comp,
+    mono. Thresholds are not toggles and stay in OpenWave's own UI."""
+    parameter = (GLib.Variant("(ss)", (source_id, effect))
+                 if _HAVE_GI else None)
+    return activate(
+        "toggle-fx", parameter,
+        f"<('{_quote(source_id)}', '{_quote(effect)}')>",
+    )

@@ -318,7 +318,7 @@ STRIP_W, STRIP_H = 200, 100
 
 
 def strip(name, percent, muted, kind="speaker", unavailable=False,
-          context=""):
+          context="", level=None):
     """The encoder's entire touch strip, as one image.
 
     The $A0 layout exposes a full-canvas pixmap covering all 200x100, so the
@@ -361,6 +361,18 @@ def strip(name, percent, muted, kind="speaker", unavailable=False,
              f'fill="{accent}" font-size="23" font-family="{FONT}" '
              f'font-weight="bold" text-anchor="end">'
              f'{_escape(readout)}</text>')
+    if level is not None and not unavailable:
+        # The live meter, under the volume bar: the volume is what you set,
+        # the meter is what is happening — cube-root like OpenWave's own
+        # bars, so the two speak the same scale as the faders.
+        shown = max(0.0, min(1.0, float(level))) ** (1.0 / 3.0)
+        body += (f'<rect x="{bar_x}" y="{bar_y + bar_h + 4}" '
+                 f'width="{bar_w}" height="5" rx="2.5" '
+                 f'fill="{THEME["track"]}"/>')
+        if shown > 0.01:
+            body += (f'<rect x="{bar_x}" y="{bar_y + bar_h + 4}" '
+                     f'width="{shown * bar_w:.1f}" height="5" rx="2.5" '
+                     f'fill="{THEME["live"]}"/>')
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{STRIP_W}" '
             f'height="{STRIP_H}" viewBox="0 0 {STRIP_W} {STRIP_H}">'
             f'{body}</svg>')
@@ -391,5 +403,34 @@ def scene_key(name, unavailable=False, saved=False):
         + _text_block(["saved ✓" if saved else "press to recall"],
                       126, 13, accent if saved else THEME["dim"],
                       weight="700" if saved else "400")
+    )
+    return _document(body, accent)
+
+
+def fx_key(source_name, effect, on, unavailable=False, value=""):
+    """An effect toggle as a key: LED plus what it governs.
+
+    The LED is the state — filled and lit when the effect is in the
+    chain, hollow when it is not — with the effect's name as the
+    headline and the microphone underneath.
+    """
+    labels = {"lowcut": "LOW CUT", "gate": "GATE",
+              "comp": "COMP", "mono": "MONO"}
+    label = labels.get(effect, effect.upper())
+    if unavailable:
+        return _document(
+            _text_block([label], 74, 20, THEME["dim"])
+            + _text_block(["OpenWave closed"], 122, 13, THEME["dim"],
+                          weight="400"),
+            THEME["idle"])
+    accent = THEME["live"] if on else THEME["idle"]
+    led = (f'<circle cx="{SIZE // 2}" cy="34" r="9" fill="{accent if on else "none"}" '
+           f'stroke="{accent}" stroke-width="3"/>')
+    body = (
+        led
+        + _text_block([label], 82, 21, THEME["text"])
+        + (_text_block([value], 102, 15, accent) if value else "")
+        + _text_block([_fit(source_name, 14)], 124, 13, THEME["dim"],
+                      weight="400")
     )
     return _document(body, accent)

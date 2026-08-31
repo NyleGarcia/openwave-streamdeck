@@ -41,6 +41,7 @@ SOURCE_LEVEL = "dev.openwave.sourcelevel"
 SEND_LEVEL = "dev.openwave.sendlevel"
 MIC_GROUP = "dev.openwave.micgroup"
 SCENE = "dev.openwave.scene"
+FX_TOGGLE = "dev.openwave.fxtoggle"
 
 # One action per kind of thing, rather than one action with every target in a
 # single list. With three mixes and seven sources that list is 31 entries, of
@@ -162,6 +163,8 @@ class Plugin:
         # context -> settings, for every visible instance of our actions
         self._contexts = {}
         self._scene_pressed = {}
+        self._levels = {}
+        self._levels_at = 0.0
         # context -> the last payload drawn, so a tick that changes nothing
         # sends nothing: the deck redraws on receipt, and a key repainting
         # every second visibly flickers.
@@ -280,11 +283,30 @@ class Plugin:
         # of it is duplication; clearing it once keeps the key clean.
         self._send("setTitle", context, {"title": title, "target": 0})
 
+    def _level_for(self, settings):
+        """The live meter value behind a dial's target, or None.
+
+        Cells meter their source: the send's own level is not a thing
+        PipeWire measures, and the source is what the ear hears moving.
+        """
+        kind, ident = parse_target(settings)
+        if kind == "mix":
+            key = f"mix:{ident}"
+        elif kind == "src":
+            key = f"src:{ident}"
+        elif kind == "cell":
+            key = f"src:{split_cell(ident)[0]}"
+        else:
+            return None
+        return self._levels.get(key)
+
     def _paint_strip(self, context, state):
         """The encoder's touch strip, drawn whole."""
+        settings = self._contexts.get(context) or {}
         image = render.strip(state["name"], state["percent"], state["muted"],
                              kind=state["glyph"], unavailable=not state["ok"],
-                             context=state.get("context", ""))
+                             context=state.get("context", ""),
+                             level=self._level_for(settings))
         if self._drawn.get((context, "strip")) == image:
             return
         self._drawn[(context, "strip")] = image
@@ -295,6 +317,18 @@ class Plugin:
         """Draw one instance from live audio state."""
         settings = self._contexts.get(context) or {}
         action = settings.get("action", VOLUME)
+        if action == FX_TOGGLE:
+            data = self._openwave(force=True)
+            return {
+                "openwave": data is not None,
+                "mics": [
+                    {"value": s.get("id"), "label": s.get("name", "")}
+                    for s in (data or {}).get("sources") or []
+                    if s.get("kind") == "device"
+                ],
+                "themes": render.theme_choices(),
+                "theme": self._theme,
+            }
         if action == SCENE:
             data = ipc.scenes()
             return {
@@ -310,6 +344,9 @@ class Plugin:
             return
         if action == SCENE:
             self._render_scene(context, settings)
+            return
+        if action == FX_TOGGLE:
+            self._render_fx(context, settings)
             return
 
         encoder = settings.get("controller") == "Encoder"
@@ -373,6 +410,68 @@ class Plugin:
             ok = ipc.apply_scene(sid)
         self._send("showOk" if ok else "showAlert", context)
         self._render(context)
+
+    def _render_fx(self, context, settings):
+        source_id = settings.get("source")
+        effect = settings.get("effect")
+        if not source_id or not effect:
+            self._paint(context, render.unconfigured_key(
+                "Pick a mic + effect", "in settings", kind="mic"))
+            return
+        data = self._openwave()
+        source = next((s for s in (data or {}).get("sources") or []
+                       if s.get("id") == source_id), None)
+        if source is None:
+            self._paint(context, render.fx_key(
+                settings.get("source_label") or source_id, effect,
+                False, unavailable=True))
+            return
+        fx = source.get("fx") or {}
+        on = bool(fx.get(effect))
+        value = ""
+        if effect == "lowcut" and fx.get("lowcut"):
+            on, value = True, f"{fx['lowcut']} Hz"
+        elif effect == "gate" and on:
+            value = f"{fx.get('gate_thresh', 0):.0f} dB"
+        elif effect == "comp" and on:
+            value = f"{fx.get('comp_thresh', 0):.0f} dB"
+        self._paint(context, render.fx_key(
+            source.get("name", source_id), effect, on, value=value))
+
+    def _toggle_fx(self, context):
+        settings = self._contexts.get(context) or {}
+        if not settings.get("source") or not settings.get("effect"):
+            self._send("showAlert", context)
+            return
+        if not ipc.toggle_fx(settings["source"], settings["effect"]):
+            self._send("showAlert", context)
+            return
+        self._openwave(force=True)
+        self._render(context)
+
+    def _cycle_target(self, context):
+        """Tap on a stacked dial: advance to the next configured target."""
+        settings = self._contexts.get(context) or {}
+        # "target" doubles as the active slot, so the configured first slot
+        # is remembered apart from it — otherwise the first cycle would
+        # overwrite the stack's own head and strand the rotation.
+        first = settings.get("target1") or settings.get("target")
+        stack = [t for t in (first, settings.get("target2"),
+                             settings.get("target3")) if t]
+        if len(stack) < 2:
+            return False
+        settings["target1"] = first
+        current = settings.get("target")
+        settings["target"] = (stack[(stack.index(current) + 1) % len(stack)]
+                              if current in stack else stack[0])
+        self._contexts[context] = settings
+        self._send("setSettings", context, {
+            k: v for k, v in settings.items()
+            if k not in ("controller", "action")})
+        self._drawn.pop(context, None)
+        self._drawn.pop((context, "strip"), None)
+        self._render(context)
+        return True
 
     def _render_group(self, context, settings):
         group = settings.get("group")
@@ -480,6 +579,18 @@ class Plugin:
         this action would not otherwise offer, and dropping it silently from
         the list would look like the key had lost its setting.
         """
+        if action == FX_TOGGLE:
+            data = self._openwave(force=True)
+            return {
+                "openwave": data is not None,
+                "mics": [
+                    {"value": s.get("id"), "label": s.get("name", "")}
+                    for s in (data or {}).get("sources") or []
+                    if s.get("kind") == "device"
+                ],
+                "themes": render.theme_choices(),
+                "theme": self._theme,
+            }
         if action == SCENE:
             data = ipc.scenes()
             return {
@@ -618,6 +729,10 @@ class Plugin:
             settings = self._contexts.get(context) or {}
             if settings.get("action") == MIC_GROUP:
                 self._switch_group(context)
+            elif settings.get("action") == FX_TOGGLE:
+                self._toggle_fx(context)
+            elif event == "touchTap" and self._cycle_target(context):
+                pass
             elif settings.get("action") == SCENE:
                 if event == "touchTap":
                     self._scene_pressed[context] = 0.0
@@ -659,10 +774,56 @@ class Plugin:
                            action, self._contexts.get(context) or {}))
 
     # ---------------------------------------------------------------- loop
+    def _on_push(self, states):
+        """OpenWave pushed fresh state: adopt it and redraw everything.
+
+        This replaces waiting for the refresh timer — a mute pressed on
+        the hardware or in the window shows on the deck within OpenWave's
+        150 ms debounce instead of at the next multi-second refresh.
+        """
+        snap = states.get("snapshot")
+        if snap:
+            try:
+                self._snapshot = json.loads(snap)
+                self._snapshot_at = time.monotonic()
+            except (TypeError, ValueError):
+                pass
+        self._render_all()
+
+    def _tick_levels(self, now):
+        """While any dial is on screen, follow the live meters at ~8 Hz.
+
+        Levels are poll-only on purpose — OpenWave will not broadcast
+        meter frames — and only the strips repaint from them, so a deck
+        with no dials costs nothing here.
+        """
+        if now - self._levels_at < 0.12:
+            return
+        encoders = [
+            (context, settings)
+            for context, settings in self._contexts.items()
+            if settings.get("controller") == "Encoder"
+        ]
+        if not encoders:
+            return
+        self._levels_at = now
+        self._levels = ipc.levels()
+        for context, settings in encoders:
+            state = self._read(settings)
+            if state is not None:
+                self._paint_strip(context, state)
+
     def run(self):
+        glib_context = None
+        if ipc.subscribe(self._on_push):
+            try:
+                from gi.repository import GLib
+                glib_context = GLib.MainContext.default()
+            except ImportError:                    # pragma: no cover
+                glib_context = None
         while True:
             try:
-                ready, _, _ = select.select([self._ws], [], [], 0.25)
+                ready, _, _ = select.select([self._ws], [], [], 0.12)
                 if ready:
                     raw = self._ws.receive()
                     if raw:
@@ -671,7 +832,13 @@ class Plugin:
                             self._handle(json.loads(raw))
                         except Exception:          # noqa: BLE001
                             log.exception("handler failed: %s", raw[:200])
+                # Signal delivery rides the GLib default context; pumping it
+                # here is what turns the subscription into actual callbacks.
+                if glib_context is not None:
+                    while glib_context.pending():
+                        glib_context.iteration(False)
                 now = time.monotonic()
+                self._tick_levels(now)
                 if now - self._last_refresh >= REFRESH_SECONDS:
                     self._last_refresh = now
                     self._render_all()

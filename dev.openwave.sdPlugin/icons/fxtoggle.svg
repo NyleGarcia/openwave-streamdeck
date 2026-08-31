@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72">
+  <rect width="72" height="72" rx="14" fill="#1b1f26"/>
+  <circle cx="36" cy="24" r="7" fill="none" stroke="#4da3ff" stroke-width="4"/>
+  <circle cx="36" cy="24" r="2.5" fill="#4da3ff"/>
+  <text x="36" y="56" font-family="sans-serif" font-size="20" font-weight="bold"
+        fill="#4da3ff" text-anchor="middle">FX</text>
+</svg>

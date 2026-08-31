@@ -15,6 +15,14 @@
   <div id="single">
     <label for="target">Control</label>
     <select id="target"><option value="">Loading…</option></select>
+    <details id="stackBox" style="margin-top:8px">
+      <summary style="cursor:pointer;color:#8b929b">Stack more targets
+        (tap the strip to cycle)</summary>
+      <label for="target2" style="margin-top:8px">Also control</label>
+      <select id="target2"></select>
+      <label for="target3" style="margin-top:8px">And</label>
+      <select id="target3"></select>
+    </details>
   </div>
   <div id="pair" hidden>
     <label for="pairSource">Source</label>
@@ -164,9 +172,26 @@ function renderPair(payload) {
     + `${pair.mixes.length} mixes, chosen=${pair.chosen || "none"}`);
 }
 
+function fillStackSelect(id, chosen) {
+  const node = document.getElementById(id);
+  node.innerHTML = "";
+  node.appendChild(new Option("None", ""));
+  for (const target of targets) {
+    const option = new Option(target.label, target.value);
+    if (target.value === chosen) option.selected = true;
+    node.appendChild(option);
+  }
+  node.onchange = () => OpenWave.save({ [id]: node.value });
+}
+
 function render(payload) {
   const chosen = payload.chosen || OpenWave.settings().target
     || (OpenWave.settings().mix ? "mix:" + OpenWave.settings().mix : "");
+  fillStackSelect("target2", OpenWave.settings().target2 || "");
+  fillStackSelect("target3", OpenWave.settings().target3 || "");
+  if (OpenWave.settings().target2 || OpenWave.settings().target3) {
+    document.getElementById("stackBox").open = true;
+  }
   select.innerHTML = "";
   warn.hidden = true;
 

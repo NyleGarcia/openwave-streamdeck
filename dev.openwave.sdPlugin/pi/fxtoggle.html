@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OpenWave — Effect Toggle</title>
+<link rel="stylesheet" href="_shared.css" />
+<script src="_shared.js"></script>
+</head>
+<body>
+  <label for="mic">Microphone</label>
+  <select id="mic"><option value="">Loading…</option></select>
+  <label for="effect" style="margin-top:10px">Effect</label>
+  <select id="effect">
+    <option value="lowcut">Low cut (off ↔ 80 Hz)</option>
+    <option value="gate">Gate</option>
+    <option value="comp">Compressor</option>
+    <option value="mono">Mono</option>
+  </select>
+  <p class="hint">
+    Press the key to flip the effect in that microphone's DSP chain. The
+    LED shows whether it is currently in the chain; thresholds are set in
+    OpenWave (the FX popover, or Auto-calibrate).
+  </p>
+  <p class="warn" id="warn" hidden></p>
+  <div style="margin-top:16px;border-top:1px solid #343a42;padding-top:14px">
+    <label for="theme">Colours <span style="font-weight:400;color:#8b929b">
+      — applies to every key</span></label>
+    <select id="theme"></select>
+  </div>
+
+<script>
+const mic = document.getElementById("mic");
+const effect = document.getElementById("effect");
+const warn = document.getElementById("warn");
+
+OpenWave.onPayload((payload) => {
+  if (!payload) return;
+  const node = document.getElementById("theme");
+  if (payload.themes && !node.options.length) {
+    for (const theme of payload.themes) {
+      node.appendChild(new Option(theme.label, theme.id));
+    }
+    node.onchange = () => OpenWave.saveGlobal({ theme: node.value });
+  }
+  if (payload.theme) node.value = payload.theme;
+  render(payload);
+});
+
+function render(payload) {
+  const mics = payload.mics || [];
+  const chosen = OpenWave.settings().source || "";
+  effect.value = OpenWave.settings().effect || "lowcut";
+  mic.innerHTML = "";
+  warn.hidden = true;
+
+  if (!payload.openwave) {
+    mic.innerHTML = '<option value="">OpenWave is not running</option>';
+    warn.textContent = "Start OpenWave, then reopen this panel.";
+    warn.hidden = false;
+    return;
+  }
+  mic.appendChild(new Option("Choose a microphone…", ""));
+  for (const m of mics) {
+    const option = new Option(m.label, m.value);
+    if (m.value === chosen) option.selected = true;
+    mic.appendChild(option);
+  }
+}
+
+mic.onchange = () => OpenWave.save({
+  source: mic.value,
+  source_label: mic.options[mic.selectedIndex].text,
+  effect: effect.value || "lowcut",
+});
+effect.onchange = () => OpenWave.save({ effect: effect.value });
+OpenWave.report("fxtoggle inspector loaded");
+</script>
+</body>
+</html>

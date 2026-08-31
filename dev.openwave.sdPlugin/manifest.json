@@ -132,6 +132,23 @@
           "Title": ""
         }
       ]
+    },
+    {
+      "Name": "Effect Toggle",
+      "UUID": "dev.openwave.fxtoggle",
+      "Icon": "icons/fxtoggle",
+      "Tooltip": "Flip a microphone's low cut, gate, compressor or mono, with an LED for its state.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "SupportedInMultiActions": false,
+      "PropertyInspectorPath": "pi/fxtoggle.html",
+      "States": [
+        {
+          "Image": "icons/fxtoggle",
+          "Title": ""
+        }
+      ]
     }
   ]
 }

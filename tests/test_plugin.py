@@ -102,6 +102,9 @@ class PluginCase(unittest.TestCase):
         self.plugin._last_refresh = 0.0
         self.plugin._snapshot = None
         self.plugin._snapshot_at = 0.0
+        self.plugin._scene_pressed = {}
+        self.plugin._levels = {}
+        self.plugin._levels_at = 0.0
         self.plugin._theme = render.DEFAULT_THEME
         render.set_theme(render.DEFAULT_THEME)
 
@@ -242,6 +245,9 @@ class TestReadingState(PluginCase):
     def test_source_with_openwave_closed(self):
         self.snapshot = None
         self.plugin._snapshot_at = 0.0
+        self.plugin._scene_pressed = {}
+        self.plugin._levels = {}
+        self.plugin._levels_at = 0.0
         self.assertFalse(self.plugin._read({"target": "src:dock"})["ok"])
 
     def test_no_target(self):
@@ -279,12 +285,18 @@ class TestReadingCells(PluginCase):
     def test_a_send_to_a_deleted_mix_is_unavailable(self):
         self.snapshot["mixes"] = [self.snapshot["mixes"][0]]
         self.plugin._snapshot_at = 0.0
+        self.plugin._scene_pressed = {}
+        self.plugin._levels = {}
+        self.plugin._levels_at = 0.0
         self.assertFalse(
             self.plugin._read({"target": "cell:dock:chat"})["ok"])
 
     def test_a_send_with_openwave_closed_is_unavailable(self):
         self.snapshot = None
         self.plugin._snapshot_at = 0.0
+        self.plugin._scene_pressed = {}
+        self.plugin._levels = {}
+        self.plugin._levels_at = 0.0
         self.assertFalse(
             self.plugin._read({"target": "cell:dock:chat"})["ok"])
 
@@ -307,6 +319,9 @@ class TestAdjustingCells(PluginCase):
     def test_a_send_on_a_missing_mix_is_left_alone(self):
         self.snapshot["mixes"] = []
         self.plugin._snapshot_at = 0.0
+        self.plugin._scene_pressed = {}
+        self.plugin._levels = {}
+        self.plugin._levels_at = 0.0
         self.place("c", P.VOLUME, {"target": "cell:dock:chat"})
         self.plugin._handle({"event": "dialRotate", "context": "c",
                              "payload": {"ticks": 5}})
@@ -519,6 +534,9 @@ class TestGroupState(PluginCase):
     def test_openwave_closed(self):
         self.snapshot = None
         self.plugin._snapshot_at = 0.0
+        self.plugin._scene_pressed = {}
+        self.plugin._levels = {}
+        self.plugin._levels_at = 0.0
         self.assertIsNone(self.plugin._group_state("Mic"))
 
 
@@ -735,6 +753,9 @@ class TestInspectorPayload(PluginCase):
     def test_mixes_are_still_offered_with_openwave_closed(self):
         self.snapshot = None
         self.plugin._snapshot_at = 0.0
+        self.plugin._scene_pressed = {}
+        self.plugin._levels = {}
+        self.plugin._levels_at = 0.0
         payload = self.plugin._inspector_payload(P.VOLUME)
         self.assertFalse(payload["openwave"])
         self.assertTrue([t for t in payload["targets"]
@@ -743,6 +764,9 @@ class TestInspectorPayload(PluginCase):
     def test_nothing_is_offered_with_openwave_closed(self):
         self.snapshot = None
         self.plugin._snapshot_at = 0.0
+        self.plugin._scene_pressed = {}
+        self.plugin._levels = {}
+        self.plugin._levels_at = 0.0
         self.assertEqual(
             self.plugin._inspector_payload(P.SOURCE_LEVEL)["targets"], [])
         pair = self.plugin._inspector_payload(P.SEND_LEVEL)["pair"]
@@ -923,7 +947,6 @@ class TestScene(PluginCase):
 
     def setUp(self):
         super().setUp()
-        self.plugin._scene_pressed = {}
         self._patch(ipc, "available", lambda: True)
         self._patch(ipc, "scenes", lambda: {"streaming": "Streaming",
                                             "late-night": "Late Night"})
@@ -987,3 +1010,75 @@ class TestScene(PluginCase):
         self.assertTrue(payload["openwave"])
         self.assertEqual([s["label"] for s in payload["scenes"]],
                          ["Late Night", "Streaming"])
+
+
+class TestFxToggle(PluginCase):
+    """An effect key: LED for the chain state, one press to flip it."""
+
+    def setUp(self):
+        super().setUp()
+        self.snapshot["sources"][0]["fx"] = {"lowcut": 80, "gate": False}
+        self._patch(ipc, "available", lambda: True)
+        self._patch(ipc, "toggle_fx",
+                    lambda sid, eff: self.calls.append(("fx", sid, eff))
+                    or True)
+
+    def test_a_press_flips_the_effect(self):
+        self.place("c", P.FX_TOGGLE, {"source": "dock", "effect": "gate"})
+        self.press("c")
+        self.assertIn(("fx", "dock", "gate"), self.calls)
+
+    def test_unconfigured_alerts(self):
+        self.place("c", P.FX_TOGGLE, {})
+        self.press("c")
+        self.assertTrue(self.events("showAlert"))
+        self.assertEqual([c for c in self.calls if c[0] == "fx"], [])
+
+    def test_inspector_offers_only_microphones(self):
+        payload = self.plugin._inspector_payload(P.FX_TOGGLE, {})
+        self.assertEqual([m["value"] for m in payload["mics"]],
+                         ["dock", "arctis"],
+                         "app sources are not effect targets")
+
+
+class TestStackedDials(PluginCase):
+    """Several targets on one dial; a tap walks the stack."""
+
+    def _place(self, **extra):
+        settings = {"target": "mix:personal", "target2": "src:music"}
+        settings.update(extra)
+        self.place("c", P.VOLUME, settings, controller="Encoder")
+
+    def test_tap_cycles_to_the_next_target(self):
+        self._place()
+        self.plugin._handle({"event": "touchTap", "context": "c"})
+        self.assertEqual(self.plugin._contexts["c"]["target"], "src:music")
+        sent = [m for m in self.ws.sent if m["event"] == "setSettings"]
+        self.assertTrue(sent, "the new active target must persist")
+
+    def test_tap_wraps_around(self):
+        self._place()
+        self.plugin._handle({"event": "touchTap", "context": "c"})
+        self.plugin._handle({"event": "touchTap", "context": "c"})
+        self.assertEqual(self.plugin._contexts["c"]["target"], "mix:personal")
+
+    def test_single_target_taps_keep_muting(self):
+        """No stack configured: a tap stays the mute it always was."""
+        self.place("c", P.VOLUME, {"target": "mix:personal"},
+                   controller="Encoder")
+        self.plugin._handle({"event": "touchTap", "context": "c"})
+        self.assertIn(("sink-mute", "openwave_personal_mix"), self.calls)
+
+
+class TestPush(PluginCase):
+    def test_a_pushed_snapshot_replaces_the_cache(self):
+        self.plugin._snapshot = {"stale": True}
+        fresh = json.dumps({"sources": [], "mixes": [], "cells": {},
+                            "groups": []})
+        self.plugin._on_push({"snapshot": fresh})
+        self.assertNotIn("stale", self.plugin._snapshot)
+
+    def test_garbage_push_is_ignored(self):
+        self.plugin._snapshot = {"stale": True}
+        self.plugin._on_push({"snapshot": "{not json"})
+        self.assertIn("stale", self.plugin._snapshot)

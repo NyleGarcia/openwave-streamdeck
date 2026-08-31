@@ -1,3 +1,10 @@
+# [0.7.0](https://github.com/NyleGarcia/openwave-streamdeck/compare/v0.6.0...v0.7.0) (2026-08-31)
+
+
+### Features
+
+* live meters, stacked dials, effect keys, and push instead of poll ([a88c62f](https://github.com/NyleGarcia/openwave-streamdeck/commit/a88c62f431ce91806d99e58ebf5eeff8cd126e5a))
+
 # [0.6.0](https://github.com/NyleGarcia/openwave-streamdeck/compare/v0.5.0...v0.6.0) (2026-08-31)
 
 

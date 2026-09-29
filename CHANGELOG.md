@@ -1,3 +1,10 @@
+## [0.7.1](https://github.com/NyleGarcia/openwave-streamdeck/compare/v0.7.0...v0.7.1) (2026-09-29)
+
+
+### Bug Fixes
+
+* unpack OpenWave's Changed signal as its four parts so pushes arrive ([9099c2a](https://github.com/NyleGarcia/openwave-streamdeck/commit/9099c2a399c08d4030c378dd46b83657d7b06961))
+
 # [0.7.0](https://github.com/NyleGarcia/openwave-streamdeck/compare/v0.6.0...v0.7.0) (2026-08-31)
 
 

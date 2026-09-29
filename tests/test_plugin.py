@@ -1082,3 +1082,28 @@ class TestPush(PluginCase):
         self.plugin._snapshot = {"stale": True}
         self.plugin._on_push({"snapshot": "{not json"})
         self.assertIn("stale", self.plugin._snapshot)
+
+
+@unittest.skipUnless(ipc._HAVE_GI, "needs PyGObject")
+class TestChangedSignal(unittest.TestCase):
+    """The relay must unpack org.gtk.Actions.Changed as the bus sends it."""
+
+    def setUp(self):
+        self.addCleanup(setattr, ipc, "_on_changed", ipc._on_changed)
+        self.got = []
+        ipc._on_changed = self.got.append
+
+    def _relay(self):
+        class Proxy:
+            def connect(inner, _name, handler):
+                inner.handler = handler
+        proxy = Proxy()
+        ipc._attach(proxy)
+        return proxy.handler
+
+    def test_the_real_four_part_signal_reaches_the_subscriber(self):
+        GLib = ipc.GLib
+        params = GLib.Variant("(asa{sb}a{sv}a{s(bgav)})", (
+            [], {}, {"snapshot": GLib.Variant("s", "{}")}, {}))
+        self._relay()(None, ":1.1", "Changed", params)
+        self.assertEqual(self.got, [{"snapshot": "{}"}])

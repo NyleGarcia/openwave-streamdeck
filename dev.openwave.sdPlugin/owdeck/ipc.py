@@ -83,8 +83,10 @@ def _attach(proxy):
     def _relay(_proxy, _sender, signal, params):
         if signal != "Changed" or _on_changed is None:
             return
+        # org.gtk.Actions.Changed is (as a{sb} a{sv} a{s(bgav)}): removed,
+        # enabled, state, added. Only the state map matters here.
         try:
-            _removed, _enabled, states = params.unpack()
+            _removed, _enabled, states, _added = params.unpack()
         except (TypeError, ValueError):
             return
         _on_changed(dict(states or {}))

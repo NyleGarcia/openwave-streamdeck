@@ -13,12 +13,17 @@
     [
       "@semantic-release/exec",
       {
-        "prepareCmd": "python3 scripts/set_version.py ${nextRelease.version} && sh scripts/package.sh"
+        "prepareCmd": "python3 scripts/set_version.py ${nextRelease.version} && python3 scripts/package.py"
       }
     ],
     [
       "@semantic-release/github",
-      { "assets": [{ "path": "dist/openwave-streamdeck-*.zip", "label": "OpenDeck plugin" }] }
+      {
+        "assets": [
+          { "path": "dist/openwave-streamdeck-*.zip", "label": "OpenDeck plugin" },
+          { "path": "dist/openwave-streamdeck-*.zip.sha256", "label": "SHA-256 checksum" }
+        ]
+      }
     ],
     [
       "@semantic-release/git",

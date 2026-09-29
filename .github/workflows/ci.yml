@@ -67,7 +67,7 @@ jobs:
         run: python3 -m unittest discover -s tests -t . -v
 
       - name: Build the release archive
-        run: sh scripts/package.sh
+        run: python3 scripts/package.py
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: matrix.python-version == '3.13'

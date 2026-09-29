@@ -1,7 +1,7 @@
 PLUGIN := dev.openwave.sdPlugin
 PLUGINS_DIR := $(HOME)/.config/opendeck/plugins
 
-.PHONY: test validate check package install clean
+.PHONY: test validate check package preview install clean
 
 test:
 	python3 -m unittest discover -s tests -t . -v
@@ -14,7 +14,13 @@ validate:
 check: validate test
 
 package:
-	@sh scripts/package.sh
+	@python3 scripts/package.py
+
+# Redraws the README's images (.github/preview.png, .github/keys/) from the
+# key renderer. The output is committed, so this is run after changing how a
+# key draws, not on build.
+preview:
+	python3 scripts/make_preview.py
 
 # Copied rather than symlinked: OpenDeck resolves a plugin's property
 # inspectors and layouts relative to the real directory, and refuses paths
@@ -24,6 +30,7 @@ install:
 	mkdir -p $(PLUGINS_DIR)
 	cp -r $(PLUGIN) $(PLUGINS_DIR)/$(PLUGIN)
 	find $(PLUGINS_DIR)/$(PLUGIN) -name __pycache__ -type d -exec rm -rf {} +
+	rm -f $(PLUGINS_DIR)/$(PLUGIN)/plugin.log
 	@echo "installed; restart OpenDeck"
 
 clean:

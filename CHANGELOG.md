@@ -1,3 +1,10 @@
+## [0.7.2](https://github.com/NyleGarcia/openwave-streamdeck/compare/v0.7.1...v0.7.2) (2026-10-02)
+
+
+### Bug Fixes
+
+* read sink state once per tick instead of three pactl calls per dial ([dc9c428](https://github.com/NyleGarcia/openwave-streamdeck/commit/dc9c4282e74257350cf9a6b1719878a431259f2e))
+
 ## [0.7.1](https://github.com/NyleGarcia/openwave-streamdeck/compare/v0.7.0...v0.7.1) (2026-09-29)
 
 

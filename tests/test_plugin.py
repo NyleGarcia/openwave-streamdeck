@@ -20,6 +20,8 @@ sys.path.insert(0, PLUGIN_DIR)
 import plugin as P                                          # noqa: E402
 from owdeck import graph, ipc, owstate, render               # noqa: E402
 
+REAL_SINKS = graph.sinks
+
 
 SNAPSHOT = {
     "groups": ["Mic"],
@@ -66,6 +68,7 @@ class PluginCase(unittest.TestCase):
 
     def setUp(self):
         self.calls = []
+        self.sink_reads = 0
         self.sinks = {"openwave_personal_mix": [1.0, False],
                       "openwave_chat_mix": [0.6, True]}
         self.snapshot = json.loads(json.dumps(SNAPSHOT))
@@ -78,9 +81,7 @@ class PluginCase(unittest.TestCase):
                     lambda i: (MIXES.get(i) or {}).get("sink"))
         self._patch(owstate, "mix_name",
                     lambda i, d=None: (MIXES.get(i) or {}).get("name", i))
-        self._patch(graph, "sink_exists", lambda n: n in self.sinks)
-        self._patch(graph, "get_volume",
-                    lambda n: self.sinks[n][0] if n in self.sinks else None)
+        self._patch(graph, "sinks", self._list_sinks)
         self._patch(graph, "get_mute",
                     lambda n: self.sinks[n][1] if n in self.sinks else None)
         self._patch(graph, "set_volume", self._set_volume)
@@ -102,6 +103,8 @@ class PluginCase(unittest.TestCase):
         self.plugin._last_refresh = 0.0
         self.plugin._snapshot = None
         self.plugin._snapshot_at = 0.0
+        self.plugin._sinks = {}
+        self.plugin._sinks_at = 0.0
         self.plugin._scene_pressed = {}
         self.plugin._levels = {}
         self.plugin._levels_at = 0.0
@@ -117,6 +120,10 @@ class PluginCase(unittest.TestCase):
         setattr(module, name, replacement)
 
     # -- stub behaviours --------------------------------------------------
+    def _list_sinks(self):
+        self.sink_reads += 1
+        return {n: (v, m) for n, (v, m) in self.sinks.items()}
+
     def _set_volume(self, name, value):
         self.calls.append(("sink-volume", name, round(value, 3)))
         self.sinks[name][0] = max(0.0, min(1.0, value))
@@ -567,6 +574,7 @@ class TestDrawing(PluginCase):
     def test_a_changed_level_is_redrawn(self):
         self.place("c", P.VOLUME, {"target": "mix:personal"})
         self.sinks["openwave_personal_mix"][0] = 0.2
+        self.plugin._sinks_at = 0.0     # the next tick, when it is reread
         self.plugin._render("c")
         self.assertEqual(len(self.events("setImage")), 1)
 
@@ -574,6 +582,7 @@ class TestDrawing(PluginCase):
         """A muted key shows MUTED, not a number, so it has not changed."""
         self.place("c", P.VOLUME, {"target": "mix:chat"})
         self.sinks["openwave_chat_mix"][0] = 0.2
+        self.plugin._sinks_at = 0.0     # the next tick, when it is reread
         self.plugin._render("c")
         self.assertEqual(self.events("setImage"), [])
 
@@ -1082,6 +1091,93 @@ class TestPush(PluginCase):
         self.plugin._snapshot = {"stale": True}
         self.plugin._on_push({"snapshot": "{not json"})
         self.assertIn("stale", self.plugin._snapshot)
+
+
+class TestSinkPolling(PluginCase):
+    """The meters redraw every dial at ~8 Hz; reading the sinks must not."""
+
+    def setUp(self):
+        super().setUp()
+        self.clock = 100.0
+        self.spawned = []
+        self._patch(P.time, "monotonic", lambda: self.clock)
+        self._patch(ipc, "levels", lambda: {})
+        # The real reader, over a fake pactl, so what is counted is
+        # processes and not calls into a stub.
+        self._patch(graph, "sinks", REAL_SINKS)
+        self._patch(graph.subprocess, "run", self._fake_run)
+
+    def _fake_run(self, argv, **_kwargs):
+        self.spawned.append(argv)
+        listing = [
+            {"name": name, "mute": muted,
+             "volume": {"front-left": {"value_percent": f"{round(v * 100)}%"},
+                        "front-right": {"value_percent": "0%"}}}
+            for name, (v, muted) in self.sinks.items()
+        ]
+        return graph.subprocess.CompletedProcess(
+            argv, 0, stdout=json.dumps(listing), stderr="")
+
+    def _dials(self):
+        for i, mix in enumerate(("personal", "chat", "personal", "chat")):
+            self.place(f"d{i}", P.VOLUME, {"target": f"mix:{mix}"},
+                       controller="Encoder")
+
+    def _run_for(self, seconds):
+        """Drive the meter tick and the refresh timer as run() does."""
+        end = self.clock + seconds
+        while self.clock < end:
+            self.clock += 0.125
+            self.plugin._tick_levels(self.clock)
+            if self.clock - self.plugin._last_refresh >= P.REFRESH_SECONDS:
+                self.plugin._last_refresh = self.clock
+                self.plugin._render_all()
+
+    def test_many_dials_cost_one_pactl_per_refresh(self):
+        self._dials()
+        self.spawned.clear()
+        self._run_for(3.0)
+        # 24 meter ticks and 3 redraws over four dials: one read per
+        # SNAPSHOT_SECONDS window, not three per dial per tick (~300).
+        self.assertLessEqual(len(self.spawned), 4)
+        self.assertTrue(all(argv[0] == "pactl" for argv in self.spawned))
+
+    def test_the_dial_still_shows_the_sink(self):
+        self._dials()
+        state = self.plugin._read({"target": "mix:chat"})
+        self.assertEqual((state["percent"], state["muted"], state["ok"]),
+                         (60, True, True))
+
+    def test_an_outside_change_shows_within_a_second(self):
+        self._dials()
+        self.sinks["openwave_chat_mix"] = [0.25, False]
+        self._run_for(1.0)
+        state = self.plugin._read({"target": "mix:chat"})
+        self.assertEqual((state["percent"], state["muted"]), (25, False))
+
+    def test_a_vanished_sink_reads_unavailable(self):
+        self._dials()
+        self.sinks.pop("openwave_chat_mix")
+        self._run_for(1.0)
+        self.assertFalse(self.plugin._read({"target": "mix:chat"})["ok"])
+
+    def test_pactl_failing_reads_unavailable(self):
+        self._patch(graph.subprocess, "run",
+                    lambda argv, **_: graph.subprocess.CompletedProcess(
+                        argv, 1, stdout="", stderr=""))
+        self.assertFalse(self.plugin._read({"target": "mix:chat"})["ok"])
+
+    def test_turning_fast_steps_from_its_own_write(self):
+        """Back-to-back detents inside one cache window must each step from
+        the last, not from the level the cache held before the turn."""
+        self.place("d", P.VOLUME, {"target": "mix:chat"},
+                   controller="Encoder")
+        for _ in range(3):
+            self.plugin._handle({"event": "dialRotate", "context": "d",
+                                 "payload": {"ticks": 1}})
+        self.assertEqual(
+            [c[2] for c in self.calls if c[0] == "sink-volume"],
+            [0.62, 0.64, 0.66])
 
 
 @unittest.skipUnless(ipc._HAVE_GI, "needs PyGObject")

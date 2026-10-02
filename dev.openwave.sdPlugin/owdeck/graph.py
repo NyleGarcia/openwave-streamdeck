@@ -54,26 +54,37 @@ def node_id(node_name):
     return best
 
 
-def sink_exists(name):
-    out = _run(["pactl", "list", "short", "sinks"])
-    if not out:
-        return False
-    return any(line.split("\t")[1] == name
-               for line in out.splitlines() if "\t" in line)
+def sinks():
+    """Every sink's (volume 0..1 or None, muted), by name, from one call.
 
-
-def get_volume(name):
-    """Sink volume as 0..1, or None if it is not there."""
-    out = _run(["pactl", "get-sink-volume", name])
+    One pactl for the whole graph rather than three per sink: the deck reads
+    every dial several times a second, and a subprocess per field per dial is
+    a process storm on pipewire-pulse. JSON rather than the text listing,
+    whose field labels are translated. Volume is the first channel's, which
+    is what `pactl get-sink-volume` leads with. {} when pactl cannot be read,
+    which reads as every sink being gone.
+    """
+    out = _run(["pactl", "-f", "json", "list", "sinks"])
     if not out:
-        return None
-    for token in out.split():
-        if token.endswith("%"):
+        return {}
+    try:
+        listing = json.loads(out)
+    except json.JSONDecodeError:
+        return {}
+    found = {}
+    for sink in listing if isinstance(listing, list) else []:
+        if not isinstance(sink, dict) or not sink.get("name"):
+            continue
+        volume = None
+        channels = sink.get("volume")
+        if isinstance(channels, dict) and channels:
+            first = next(iter(channels.values()))
             try:
-                return int(token.rstrip("%")) / 100.0
-            except ValueError:
-                return None
-    return None
+                volume = int(str(first["value_percent"]).rstrip("%")) / 100.0
+            except (KeyError, TypeError, ValueError):
+                volume = None
+        found[sink["name"]] = (volume, bool(sink.get("mute")))
+    return found
 
 
 def set_volume(name, value):

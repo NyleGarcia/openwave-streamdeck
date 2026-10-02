@@ -172,6 +172,8 @@ class Plugin:
         self._last_refresh = 0.0
         self._snapshot = None
         self._snapshot_at = 0.0
+        self._sinks = {}
+        self._sinks_at = 0.0
         self._theme = render.DEFAULT_THEME
 
     # ------------------------------------------------------------ outbound
@@ -195,6 +197,21 @@ class Plugin:
             self._snapshot = ipc.snapshot()
         return self._snapshot
 
+    def _sink_states(self):
+        """Every sink's (volume, muted), refetched at most once a tick.
+
+        Shared by every mix key the same way the snapshot is: the meters
+        redraw each dial at ~8 Hz, and asking pactl per dial per redraw ran
+        dozens of processes a second. Our own writes drop it (_sinks_at = 0)
+        so the next read sees them; anything else changing a sink shows
+        within SNAPSHOT_SECONDS.
+        """
+        now = time.monotonic()
+        if self._sinks_at == 0.0 or now - self._sinks_at >= SNAPSHOT_SECONDS:
+            self._sinks_at = now
+            self._sinks = graph.sinks()
+        return self._sinks
+
     def _read(self, settings):
         """What a volume key should show: name, percent, mute, glyph.
 
@@ -210,14 +227,15 @@ class Plugin:
             name = owstate.mix_name(ident)
             glyph = _MIX_GLYPHS.get(
                 (owstate.mixes().get(ident) or {}).get("icon_name"), "speaker")
-            if not sink or not graph.sink_exists(sink):
+            found = self._sink_states().get(sink) if sink else None
+            if found is None:
                 return {"name": name, "percent": 0, "muted": False,
                         "glyph": glyph, "ok": False, "context": ""}
-            volume = graph.get_volume(sink)
+            volume, muted = found
             return {
                 "name": name,
                 "percent": 0 if volume is None else round(volume * 100),
-                "muted": bool(graph.get_mute(sink)),
+                "muted": muted,
                 "glyph": glyph,
                 "ok": volume is not None,
                 "context": "",
@@ -502,6 +520,7 @@ class Plugin:
             sink = owstate.mix_sink(ident)
             if sink:
                 graph.set_volume(sink, value)
+                self._sinks_at = 0.0
         elif kind == "src":
             ipc.set_source_level(ident, value)
             self._openwave(force=True)
@@ -541,6 +560,7 @@ class Plugin:
                 self._send("showAlert", context)
                 return
             graph.toggle_mute(sink)
+            self._sinks_at = 0.0
         elif kind == "cell":
             if ipc.toggle_cell_mute(*split_cell(ident)) is False:
                 self._send("showAlert", context)
@@ -788,6 +808,9 @@ class Plugin:
                 self._snapshot_at = time.monotonic()
             except (TypeError, ValueError):
                 pass
+        # A push can follow a mix master moved in OpenWave's window, which
+        # lives in the sink rather than the snapshot.
+        self._sinks_at = 0.0
         self._render_all()
 
     def _tick_levels(self, now):
